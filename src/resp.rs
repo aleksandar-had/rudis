@@ -7,7 +7,7 @@ pub enum RespValue {
     SimpleString(String),
     Error(String),
     Integer(i64),
-    BulkString(Option<Vec<u8>>), // None represents null bulk string
+    BulkString(Option<Vec<u8>>),   // None represents null bulk string
     Array(Option<Vec<RespValue>>), // None represents null array
 }
 
@@ -159,8 +159,9 @@ fn parse_array(buffer: &mut BytesMut) -> Result<Option<(RespValue, usize)>> {
 mod tests {
     use super::*;
 
+    // Parsing tests
     #[test]
-    fn test_simple_string() {
+    fn parse_simple_string() {
         let mut buffer = BytesMut::from("+OK\r\n");
         let result = RespValue::parse(&mut buffer).unwrap().unwrap();
         assert_eq!(result.0, RespValue::SimpleString("OK".to_string()));
@@ -168,35 +169,73 @@ mod tests {
     }
 
     #[test]
-    fn test_error() {
+    fn parse_empty_simple_string() {
+        let mut buffer = BytesMut::from("+\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::SimpleString("".to_string()));
+    }
+
+    #[test]
+    fn parse_error() {
         let mut buffer = BytesMut::from("-Error message\r\n");
         let result = RespValue::parse(&mut buffer).unwrap().unwrap();
         assert_eq!(result.0, RespValue::Error("Error message".to_string()));
     }
 
     #[test]
-    fn test_integer() {
+    fn parse_integer_positive() {
         let mut buffer = BytesMut::from(":1000\r\n");
         let result = RespValue::parse(&mut buffer).unwrap().unwrap();
         assert_eq!(result.0, RespValue::Integer(1000));
     }
 
     #[test]
-    fn test_bulk_string() {
+    fn parse_integer_negative() {
+        let mut buffer = BytesMut::from(":-42\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::Integer(-42));
+    }
+
+    #[test]
+    fn parse_integer_zero() {
+        let mut buffer = BytesMut::from(":0\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::Integer(0));
+    }
+
+    #[test]
+    fn parse_bulk_string() {
         let mut buffer = BytesMut::from("$6\r\nfoobar\r\n");
         let result = RespValue::parse(&mut buffer).unwrap().unwrap();
         assert_eq!(result.0, RespValue::BulkString(Some(b"foobar".to_vec())));
     }
 
     #[test]
-    fn test_null_bulk_string() {
+    fn parse_empty_bulk_string() {
+        let mut buffer = BytesMut::from("$0\r\n\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::BulkString(Some(Vec::new())));
+    }
+
+    #[test]
+    fn parse_null_bulk_string() {
         let mut buffer = BytesMut::from("$-1\r\n");
         let result = RespValue::parse(&mut buffer).unwrap().unwrap();
         assert_eq!(result.0, RespValue::BulkString(None));
     }
 
     #[test]
-    fn test_array() {
+    fn parse_bulk_string_with_binary_data() {
+        let mut buffer = BytesMut::from("$5\r\n\0\r\n\x01\x02\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::BulkString(Some(vec![0, b'\r', b'\n', 1, 2]))
+        );
+    }
+
+    #[test]
+    fn parse_array() {
         let mut buffer = BytesMut::from("*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n");
         let result = RespValue::parse(&mut buffer).unwrap().unwrap();
         assert_eq!(
@@ -209,14 +248,163 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_simple_string() {
+    fn parse_empty_array() {
+        let mut buffer = BytesMut::from("*0\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::Array(Some(Vec::new())));
+    }
+
+    #[test]
+    fn parse_null_array() {
+        let mut buffer = BytesMut::from("*-1\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::Array(None));
+    }
+
+    #[test]
+    fn parse_nested_array() {
+        let mut buffer = BytesMut::from("*2\r\n*2\r\n:1\r\n:2\r\n*1\r\n+OK\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::Array(Some(vec![RespValue::Integer(1), RespValue::Integer(2),])),
+                RespValue::Array(Some(vec![RespValue::SimpleString("OK".to_string()),])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_mixed_type_array() {
+        let mut buffer = BytesMut::from("*3\r\n:1\r\n+OK\r\n$3\r\nfoo\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::Integer(1),
+                RespValue::SimpleString("OK".to_string()),
+                RespValue::BulkString(Some(b"foo".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_incomplete_simple_string_returns_none() {
+        let mut buffer = BytesMut::from("+OK");
+        let result = RespValue::parse(&mut buffer).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_incomplete_bulk_string_returns_none() {
+        let mut buffer = BytesMut::from("$6\r\nfoo");
+        let result = RespValue::parse(&mut buffer).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_incomplete_array_returns_none() {
+        let mut buffer = BytesMut::from("*2\r\n$3\r\nfoo\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_invalid_type_byte_returns_error() {
+        let mut buffer = BytesMut::from("@invalid\r\n");
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_invalid_integer_returns_error() {
+        let mut buffer = BytesMut::from(":notanumber\r\n");
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_empty_buffer_returns_none() {
+        let mut buffer = BytesMut::new();
+        let result = RespValue::parse(&mut buffer).unwrap();
+        assert!(result.is_none());
+    }
+
+    // Serialization tests
+    #[test]
+    fn serialize_simple_string() {
         let value = RespValue::SimpleString("OK".to_string());
         assert_eq!(value.serialize(), b"+OK\r\n");
     }
 
     #[test]
-    fn test_serialize_bulk_string() {
+    fn serialize_error() {
+        let value = RespValue::Error("ERR unknown command".to_string());
+        assert_eq!(value.serialize(), b"-ERR unknown command\r\n");
+    }
+
+    #[test]
+    fn serialize_integer() {
+        let value = RespValue::Integer(1000);
+        assert_eq!(value.serialize(), b":1000\r\n");
+    }
+
+    #[test]
+    fn serialize_bulk_string() {
         let value = RespValue::BulkString(Some(b"foobar".to_vec()));
         assert_eq!(value.serialize(), b"$6\r\nfoobar\r\n");
+    }
+
+    #[test]
+    fn serialize_null_bulk_string() {
+        let value = RespValue::BulkString(None);
+        assert_eq!(value.serialize(), b"$-1\r\n");
+    }
+
+    #[test]
+    fn serialize_array() {
+        let value = RespValue::Array(Some(vec![
+            RespValue::BulkString(Some(b"foo".to_vec())),
+            RespValue::BulkString(Some(b"bar".to_vec())),
+        ]));
+        assert_eq!(value.serialize(), b"*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n");
+    }
+
+    #[test]
+    fn serialize_null_array() {
+        let value = RespValue::Array(None);
+        assert_eq!(value.serialize(), b"*-1\r\n");
+    }
+
+    // Round-trip tests
+    #[test]
+    fn roundtrip_simple_string() {
+        let original = RespValue::SimpleString("PONG".to_string());
+        let serialized = original.serialize();
+        let mut buffer = BytesMut::from(&serialized[..]);
+        let (parsed, _) = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn roundtrip_bulk_string() {
+        let original = RespValue::BulkString(Some(b"hello world".to_vec()));
+        let serialized = original.serialize();
+        let mut buffer = BytesMut::from(&serialized[..]);
+        let (parsed, _) = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn roundtrip_array() {
+        let original = RespValue::Array(Some(vec![
+            RespValue::Integer(42),
+            RespValue::SimpleString("OK".to_string()),
+            RespValue::BulkString(Some(b"test".to_vec())),
+        ]));
+        let serialized = original.serialize();
+        let mut buffer = BytesMut::from(&serialized[..]);
+        let (parsed, _) = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(original, parsed);
     }
 }
