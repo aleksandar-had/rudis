@@ -1,6 +1,7 @@
 mod command;
 mod resp;
 mod server;
+mod store;
 
 use anyhow::Result;
 use server::Server;

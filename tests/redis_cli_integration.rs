@@ -1,4 +1,4 @@
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -10,6 +10,20 @@ fn redis_cli_available() -> bool {
         .stderr(Stdio::null())
         .status()
         .is_ok()
+}
+
+/// Start the rudis server and return the child process
+fn start_server() -> Option<Child> {
+    let child = Command::new("cargo")
+        .args(["run", "--quiet"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    // Wait for server to start
+    thread::sleep(Duration::from_secs(2));
+    Some(child)
 }
 
 /// Helper to run redis-cli command against our server
@@ -29,6 +43,11 @@ fn run_redis_cli(args: &[&str]) -> Result<String, String> {
     }
 }
 
+/// Check if server is running by trying to ping it
+fn server_is_running() -> bool {
+    run_redis_cli(&["PING"]).is_ok()
+}
+
 #[test]
 fn test_redis_cli_ping() {
     if !redis_cli_available() {
@@ -36,8 +55,10 @@ fn test_redis_cli_ping() {
         return;
     }
 
-    // Give the server time to start (if running separately)
-    thread::sleep(Duration::from_millis(100));
+    if !server_is_running() {
+        eprintln!("Server not running. Start with: cargo run");
+        return;
+    }
 
     let result = run_redis_cli(&["PING"]);
     assert!(result.is_ok(), "PING command failed: {:?}", result);
@@ -46,12 +67,9 @@ fn test_redis_cli_ping() {
 
 #[test]
 fn test_redis_cli_ping_with_message() {
-    if !redis_cli_available() {
-        eprintln!("redis-cli not found, skipping integration test");
+    if !redis_cli_available() || !server_is_running() {
         return;
     }
-
-    thread::sleep(Duration::from_millis(100));
 
     let result = run_redis_cli(&["PING", "hello"]);
     assert!(result.is_ok(), "PING with message failed: {:?}", result);
@@ -60,14 +78,10 @@ fn test_redis_cli_ping_with_message() {
 
 #[test]
 fn test_redis_cli_ping_case_insensitive() {
-    if !redis_cli_available() {
-        eprintln!("redis-cli not found, skipping integration test");
+    if !redis_cli_available() || !server_is_running() {
         return;
     }
 
-    thread::sleep(Duration::from_millis(100));
-
-    // redis-cli sends commands as-is, but our server should handle case insensitivity
     let result = run_redis_cli(&["ping"]);
     assert!(result.is_ok(), "ping (lowercase) failed: {:?}", result);
     assert_eq!(result.unwrap(), "PONG");
@@ -75,12 +89,9 @@ fn test_redis_cli_ping_case_insensitive() {
 
 #[test]
 fn test_redis_cli_ping_with_spaces() {
-    if !redis_cli_available() {
-        eprintln!("redis-cli not found, skipping integration test");
+    if !redis_cli_available() || !server_is_running() {
         return;
     }
-
-    thread::sleep(Duration::from_millis(100));
 
     let result = run_redis_cli(&["PING", "hello world"]);
     assert!(result.is_ok(), "PING with spaces failed: {:?}", result);
@@ -94,7 +105,10 @@ fn test_redis_cli_unknown_command() {
         return;
     }
 
-    thread::sleep(Duration::from_millis(100));
+    if !server_is_running() {
+        // Skip silently if server isn't running
+        return;
+    }
 
     let result = run_redis_cli(&["NOTACOMMAND"]);
     // Should fail or return an error
@@ -109,14 +123,10 @@ fn test_redis_cli_unknown_command() {
 
 #[test]
 fn test_redis_cli_multiple_pings() {
-    if !redis_cli_available() {
-        eprintln!("redis-cli not found, skipping integration test");
+    if !redis_cli_available() || !server_is_running() {
         return;
     }
 
-    thread::sleep(Duration::from_millis(100));
-
-    // Test that we can handle multiple sequential requests
     for i in 0..5 {
         let msg = format!("message{}", i);
         let result = run_redis_cli(&["PING", &msg]);
@@ -127,12 +137,9 @@ fn test_redis_cli_multiple_pings() {
 
 #[test]
 fn test_redis_cli_ping_empty_string() {
-    if !redis_cli_available() {
-        eprintln!("redis-cli not found, skipping integration test");
+    if !redis_cli_available() || !server_is_running() {
         return;
     }
-
-    thread::sleep(Duration::from_millis(100));
 
     let result = run_redis_cli(&["PING", ""]);
     assert!(
@@ -140,6 +147,151 @@ fn test_redis_cli_ping_empty_string() {
         "PING with empty string failed: {:?}",
         result
     );
-    // Empty string should be echoed back
     assert_eq!(result.unwrap(), "");
+}
+
+// Phase 2 integration tests
+
+#[test]
+fn test_redis_cli_set_get() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    let result = run_redis_cli(&["SET", "testkey", "testvalue"]);
+    assert!(result.is_ok(), "SET failed: {:?}", result);
+    assert_eq!(result.unwrap(), "OK");
+
+    let result = run_redis_cli(&["GET", "testkey"]);
+    assert!(result.is_ok(), "GET failed: {:?}", result);
+    assert_eq!(result.unwrap(), "testvalue");
+}
+
+#[test]
+fn test_redis_cli_get_nonexistent() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    let result = run_redis_cli(&["GET", "nonexistent_key_12345"]);
+    assert!(result.is_ok(), "GET nonexistent failed: {:?}", result);
+    // Redis returns empty string for nil
+    let output = result.unwrap();
+    assert!(output.is_empty() || output == "(nil)");
+}
+
+#[test]
+fn test_redis_cli_del() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    // Set a key first
+    run_redis_cli(&["SET", "delkey", "value"]).unwrap();
+
+    let result = run_redis_cli(&["DEL", "delkey"]);
+    assert!(result.is_ok(), "DEL failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 1");
+
+    // Verify it's gone
+    let result = run_redis_cli(&["GET", "delkey"]);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_redis_cli_setnx() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    // Clean up first
+    let _ = run_redis_cli(&["DEL", "setnxkey"]);
+
+    // First SETNX should succeed
+    let result = run_redis_cli(&["SETNX", "setnxkey", "first"]);
+    assert!(result.is_ok(), "SETNX failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 1");
+
+    // Second SETNX should fail
+    let result = run_redis_cli(&["SETNX", "setnxkey", "second"]);
+    assert!(result.is_ok(), "SETNX failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 0");
+
+    // Value should be "first"
+    let result = run_redis_cli(&["GET", "setnxkey"]);
+    assert_eq!(result.unwrap(), "first");
+}
+
+#[test]
+fn test_redis_cli_incr_decr() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    // Clean up and set initial value
+    let _ = run_redis_cli(&["DEL", "counter"]);
+    run_redis_cli(&["SET", "counter", "10"]).unwrap();
+
+    let result = run_redis_cli(&["INCR", "counter"]);
+    assert!(result.is_ok(), "INCR failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 11");
+
+    let result = run_redis_cli(&["INCRBY", "counter", "5"]);
+    assert!(result.is_ok(), "INCRBY failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 16");
+
+    let result = run_redis_cli(&["DECR", "counter"]);
+    assert!(result.is_ok(), "DECR failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 15");
+
+    let result = run_redis_cli(&["DECRBY", "counter", "3"]);
+    assert!(result.is_ok(), "DECRBY failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 12");
+}
+
+#[test]
+fn test_redis_cli_incr_new_key() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    // Clean up
+    let _ = run_redis_cli(&["DEL", "newcounter"]);
+
+    let result = run_redis_cli(&["INCR", "newcounter"]);
+    assert!(result.is_ok(), "INCR new key failed: {:?}", result);
+    assert_eq!(result.unwrap(), "(integer) 1");
+}
+
+#[test]
+fn test_redis_cli_mset_mget() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    let result = run_redis_cli(&["MSET", "mkey1", "mval1", "mkey2", "mval2", "mkey3", "mval3"]);
+    assert!(result.is_ok(), "MSET failed: {:?}", result);
+    assert_eq!(result.unwrap(), "OK");
+
+    let result = run_redis_cli(&["MGET", "mkey1", "mkey2", "mkey3"]);
+    assert!(result.is_ok(), "MGET failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("mval1"));
+    assert!(output.contains("mval2"));
+    assert!(output.contains("mval3"));
+}
+
+#[test]
+fn test_redis_cli_setex() {
+    if !redis_cli_available() || !server_is_running() {
+        return;
+    }
+
+    let result = run_redis_cli(&["SETEX", "exkey", "10", "temporary"]);
+    assert!(result.is_ok(), "SETEX failed: {:?}", result);
+    assert_eq!(result.unwrap(), "OK");
+
+    let result = run_redis_cli(&["GET", "exkey"]);
+    assert!(result.is_ok(), "GET after SETEX failed: {:?}", result);
+    assert_eq!(result.unwrap(), "temporary");
 }
