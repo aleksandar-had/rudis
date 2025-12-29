@@ -1,6 +1,4 @@
-use std::process::{Child, Command, Stdio};
-use std::thread;
-use std::time::Duration;
+use std::process::{Command, Stdio};
 
 /// Helper to check if redis-cli is available
 fn redis_cli_available() -> bool {
@@ -10,20 +8,6 @@ fn redis_cli_available() -> bool {
         .stderr(Stdio::null())
         .status()
         .is_ok()
-}
-
-/// Start the rudis server and return the child process
-fn start_server() -> Option<Child> {
-    let child = Command::new("cargo")
-        .args(["run", "--quiet"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-
-    // Wait for server to start
-    thread::sleep(Duration::from_secs(2));
-    Some(child)
 }
 
 /// Helper to run redis-cli command against our server
@@ -48,15 +32,21 @@ fn server_is_running() -> bool {
     run_redis_cli(&["PING"]).is_ok()
 }
 
-#[test]
-fn test_redis_cli_ping() {
+fn skip_if_unavailable() -> bool {
     if !redis_cli_available() {
         eprintln!("redis-cli not found, skipping integration test");
-        return;
+        return true;
     }
-
     if !server_is_running() {
-        eprintln!("Server not running. Start with: cargo run");
+        eprintln!("Server not running. Run with: ./run_integration_tests.sh");
+        return true;
+    }
+    false
+}
+
+#[test]
+fn test_redis_cli_ping() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -67,7 +57,7 @@ fn test_redis_cli_ping() {
 
 #[test]
 fn test_redis_cli_ping_with_message() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -78,7 +68,7 @@ fn test_redis_cli_ping_with_message() {
 
 #[test]
 fn test_redis_cli_ping_case_insensitive() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -89,7 +79,7 @@ fn test_redis_cli_ping_case_insensitive() {
 
 #[test]
 fn test_redis_cli_ping_with_spaces() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -100,18 +90,11 @@ fn test_redis_cli_ping_with_spaces() {
 
 #[test]
 fn test_redis_cli_unknown_command() {
-    if !redis_cli_available() {
-        eprintln!("redis-cli not found, skipping integration test");
-        return;
-    }
-
-    if !server_is_running() {
-        // Skip silently if server isn't running
+    if skip_if_unavailable() {
         return;
     }
 
     let result = run_redis_cli(&["NOTACOMMAND"]);
-    // Should fail or return an error
     if let Ok(output) = result {
         assert!(
             output.contains("ERR") || output.contains("unknown"),
@@ -123,7 +106,7 @@ fn test_redis_cli_unknown_command() {
 
 #[test]
 fn test_redis_cli_multiple_pings() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -137,7 +120,7 @@ fn test_redis_cli_multiple_pings() {
 
 #[test]
 fn test_redis_cli_ping_empty_string() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -154,7 +137,7 @@ fn test_redis_cli_ping_empty_string() {
 
 #[test]
 fn test_redis_cli_set_get() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -169,20 +152,19 @@ fn test_redis_cli_set_get() {
 
 #[test]
 fn test_redis_cli_get_nonexistent() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
     let result = run_redis_cli(&["GET", "nonexistent_key_12345"]);
     assert!(result.is_ok(), "GET nonexistent failed: {:?}", result);
-    // Redis returns empty string for nil
     let output = result.unwrap();
     assert!(output.is_empty() || output == "(nil)");
 }
 
 #[test]
 fn test_redis_cli_del() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -191,7 +173,7 @@ fn test_redis_cli_del() {
 
     let result = run_redis_cli(&["DEL", "delkey"]);
     assert!(result.is_ok(), "DEL failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 1");
+    assert_eq!(result.unwrap(), "1");
 
     // Verify it's gone
     let result = run_redis_cli(&["GET", "delkey"]);
@@ -200,7 +182,7 @@ fn test_redis_cli_del() {
 
 #[test]
 fn test_redis_cli_setnx() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -210,12 +192,12 @@ fn test_redis_cli_setnx() {
     // First SETNX should succeed
     let result = run_redis_cli(&["SETNX", "setnxkey", "first"]);
     assert!(result.is_ok(), "SETNX failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 1");
+    assert_eq!(result.unwrap(), "1");
 
     // Second SETNX should fail
     let result = run_redis_cli(&["SETNX", "setnxkey", "second"]);
     assert!(result.is_ok(), "SETNX failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 0");
+    assert_eq!(result.unwrap(), "0");
 
     // Value should be "first"
     let result = run_redis_cli(&["GET", "setnxkey"]);
@@ -224,7 +206,7 @@ fn test_redis_cli_setnx() {
 
 #[test]
 fn test_redis_cli_incr_decr() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -234,24 +216,24 @@ fn test_redis_cli_incr_decr() {
 
     let result = run_redis_cli(&["INCR", "counter"]);
     assert!(result.is_ok(), "INCR failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 11");
+    assert_eq!(result.unwrap(), "11");
 
     let result = run_redis_cli(&["INCRBY", "counter", "5"]);
     assert!(result.is_ok(), "INCRBY failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 16");
+    assert_eq!(result.unwrap(), "16");
 
     let result = run_redis_cli(&["DECR", "counter"]);
     assert!(result.is_ok(), "DECR failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 15");
+    assert_eq!(result.unwrap(), "15");
 
     let result = run_redis_cli(&["DECRBY", "counter", "3"]);
     assert!(result.is_ok(), "DECRBY failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 12");
+    assert_eq!(result.unwrap(), "12");
 }
 
 #[test]
 fn test_redis_cli_incr_new_key() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -260,12 +242,12 @@ fn test_redis_cli_incr_new_key() {
 
     let result = run_redis_cli(&["INCR", "newcounter"]);
     assert!(result.is_ok(), "INCR new key failed: {:?}", result);
-    assert_eq!(result.unwrap(), "(integer) 1");
+    assert_eq!(result.unwrap(), "1");
 }
 
 #[test]
 fn test_redis_cli_mset_mget() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
@@ -283,7 +265,7 @@ fn test_redis_cli_mset_mget() {
 
 #[test]
 fn test_redis_cli_setex() {
-    if !redis_cli_available() || !server_is_running() {
+    if skip_if_unavailable() {
         return;
     }
 
