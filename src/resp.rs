@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use bytes::{Buf, BytesMut};
 
 /// RESP (REdis Serialization Protocol) data types
@@ -40,6 +40,9 @@ impl RespValue {
     /// Returns Ok(Some(value, bytes_consumed)) if successful
     /// Returns Ok(None) if more data is needed
     /// Returns Err if the data is invalid
+    ///
+    /// This also handles inline commands (plain text commands like "PING\r\n")
+    /// which are converted to RESP arrays for uniform command processing.
     pub fn parse(buffer: &mut BytesMut) -> Result<Option<(RespValue, usize)>> {
         if buffer.is_empty() {
             return Ok(None);
@@ -51,13 +54,44 @@ impl RespValue {
             b':' => parse_integer(buffer),
             b'$' => parse_bulk_string(buffer),
             b'*' => parse_array(buffer),
-            _ => Err(anyhow!("Invalid RESP type byte: {}", buffer[0])),
+            // Any other byte indicates an inline command
+            _ => parse_inline_command(buffer),
         }
     }
 }
 
 fn find_crlf(buffer: &[u8]) -> Option<usize> {
     buffer.windows(2).position(|w| w == b"\r\n")
+}
+
+/// Parse an inline command (plain text like "PING\r\n" or "SET foo bar\r\n")
+/// Converts it to a RESP array for uniform command processing
+fn parse_inline_command(buffer: &mut BytesMut) -> Result<Option<(RespValue, usize)>> {
+    if let Some(pos) = find_crlf(buffer) {
+        let line = &buffer[..pos];
+
+        // Split the line by whitespace to get command and arguments
+        let parts: Vec<&[u8]> = line
+            .split(|&b| b == b' ' || b == b'\t')
+            .filter(|part| !part.is_empty())
+            .collect();
+
+        if parts.is_empty() {
+            // Empty command, consume the line and return empty array
+            return Ok(Some((RespValue::Array(Some(Vec::new())), pos + 2)));
+        }
+
+        // Convert each part to a bulk string
+        let elements: Vec<RespValue> = parts
+            .into_iter()
+            .map(|part| RespValue::BulkString(Some(part.to_vec())))
+            .collect();
+
+        let consumed = pos + 2; // line + \r\n
+        Ok(Some((RespValue::Array(Some(elements)), consumed)))
+    } else {
+        Ok(None) // Need more data
+    }
 }
 
 fn parse_simple_string(buffer: &mut BytesMut) -> Result<Option<(RespValue, usize)>> {
@@ -309,11 +343,135 @@ mod tests {
         assert!(result.is_none());
     }
 
+    // Inline command parsing tests
     #[test]
-    fn parse_invalid_type_byte_returns_error() {
-        let mut buffer = BytesMut::from("@invalid\r\n");
-        let result = RespValue::parse(&mut buffer);
-        assert!(result.is_err());
+    fn parse_inline_ping() {
+        let mut buffer = BytesMut::from("PING\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![RespValue::BulkString(Some(b"PING".to_vec())),]))
+        );
+        assert_eq!(result.1, 6);
+    }
+
+    #[test]
+    fn parse_inline_set_command() {
+        let mut buffer = BytesMut::from("SET foo bar\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"SET".to_vec())),
+                RespValue::BulkString(Some(b"foo".to_vec())),
+                RespValue::BulkString(Some(b"bar".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_with_extra_spaces() {
+        let mut buffer = BytesMut::from("SET  foo   bar\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"SET".to_vec())),
+                RespValue::BulkString(Some(b"foo".to_vec())),
+                RespValue::BulkString(Some(b"bar".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_empty_line() {
+        let mut buffer = BytesMut::from("\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::Array(Some(Vec::new())));
+    }
+
+    #[test]
+    fn parse_inline_incomplete_returns_none() {
+        let mut buffer = BytesMut::from("PING");
+        let result = RespValue::parse(&mut buffer).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_inline_with_tabs() {
+        let mut buffer = BytesMut::from("SET\tfoo\tbar\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"SET".to_vec())),
+                RespValue::BulkString(Some(b"foo".to_vec())),
+                RespValue::BulkString(Some(b"bar".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_unknown_command() {
+        // Unknown commands should still parse successfully at the RESP level
+        // Command validation happens in command.rs
+        let mut buffer = BytesMut::from("NOTACOMMAND arg1 arg2\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"NOTACOMMAND".to_vec())),
+                RespValue::BulkString(Some(b"arg1".to_vec())),
+                RespValue::BulkString(Some(b"arg2".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_random_garbage() {
+        // Random text is parsed as an inline command
+        let mut buffer = BytesMut::from("asdf1234!@#$\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![RespValue::BulkString(Some(
+                b"asdf1234!@#$".to_vec()
+            )),]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_only_whitespace() {
+        let mut buffer = BytesMut::from("   \t  \r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::Array(Some(Vec::new())));
+    }
+
+    #[test]
+    fn parse_inline_special_characters() {
+        let mut buffer = BytesMut::from("GET key:with:colons\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"GET".to_vec())),
+                RespValue::BulkString(Some(b"key:with:colons".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_numeric_command() {
+        // Numbers as commands should parse (validation happens later)
+        let mut buffer = BytesMut::from("12345 arg\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"12345".to_vec())),
+                RespValue::BulkString(Some(b"arg".to_vec())),
+            ]))
+        );
     }
 
     #[test]
