@@ -6,7 +6,7 @@ A from-scratch implementation of Redis in Rust, built for learning and tinkering
 
 ### Implemented Features
 - TCP server listening on port 6379
-- RESP protocol parser (all 5 data types)
+- RESP protocol parser (all 5 data types + inline commands)
 - Thread-safe data store with key expiration
 - Full redis-cli compatibility
 
@@ -76,6 +76,17 @@ cargo test
 # Integration tests (with server)
 ./run_integration_tests.sh
 ```
+
+### Benchmarking
+```bash
+# Compare performance against Redis (runs both single and multi-threaded)
+./compare_benchmark.sh
+
+# Custom benchmark args
+./compare_benchmark.sh -t ping,set,get -n 50000 -c 100 --threads 4 -q
+```
+
+Results are saved to `benchmark_results.md`.
 
 ## Architecture
 
