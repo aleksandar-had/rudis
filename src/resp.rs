@@ -1,5 +1,8 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use bytes::{Buf, BytesMut};
+
+/// Maximum length for an inline command line (64KB, matching Redis)
+const MAX_INLINE_SIZE: usize = 64 * 1024;
 
 /// RESP (REdis Serialization Protocol) data types
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +71,11 @@ fn find_crlf(buffer: &[u8]) -> Option<usize> {
 /// Converts it to a RESP array for uniform command processing
 fn parse_inline_command(buffer: &mut BytesMut) -> Result<Option<(RespValue, usize)>> {
     if let Some(pos) = find_crlf(buffer) {
+        // Reject oversized inline commands
+        if pos > MAX_INLINE_SIZE {
+            return Err(anyhow!("ERR Protocol error: too big inline request"));
+        }
+
         let line = &buffer[..pos];
 
         // Split the line by whitespace to get command and arguments
@@ -90,6 +98,10 @@ fn parse_inline_command(buffer: &mut BytesMut) -> Result<Option<(RespValue, usiz
         let consumed = pos + 2; // line + \r\n
         Ok(Some((RespValue::Array(Some(elements)), consumed)))
     } else {
+        // No CRLF found - check if buffer is getting too large (potential slowloris)
+        if buffer.len() > MAX_INLINE_SIZE {
+            return Err(anyhow!("ERR Protocol error: too big inline request"));
+        }
         Ok(None) // Need more data
     }
 }
