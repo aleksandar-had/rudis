@@ -7,10 +7,3 @@ edition = "2024"
 tokio = { version = "1.42", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
 bytes = "1.9"
 anyhow = "1.0"
-
-[[bench]]
-name = "throughput"
-harness = false
-
-[dev-dependencies]
-rand = { version = "0.8", features = ["small_rng"] }
