@@ -487,6 +487,47 @@ mod tests {
     }
 
     #[test]
+    fn parse_inline_oversized_with_crlf_returns_error() {
+        // Create a line larger than MAX_INLINE_SIZE (64KB)
+        let large_line = "A".repeat(65 * 1024);
+        let input = format!("{}\r\n", large_line);
+        let mut buffer = BytesMut::from(input.as_str());
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("too big inline request")
+        );
+    }
+
+    #[test]
+    fn parse_inline_oversized_without_crlf_returns_error() {
+        // Buffer larger than MAX_INLINE_SIZE without CRLF (slowloris protection)
+        let large_data = "A".repeat(65 * 1024);
+        let mut buffer = BytesMut::from(large_data.as_str());
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("too big inline request")
+        );
+    }
+
+    #[test]
+    fn parse_inline_at_max_size_succeeds() {
+        // Exactly at the limit should work
+        let line = "A".repeat(64 * 1024);
+        let input = format!("{}\r\n", line);
+        let mut buffer = BytesMut::from(input.as_str());
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn parse_invalid_integer_returns_error() {
         let mut buffer = BytesMut::from(":notanumber\r\n");
         let result = RespValue::parse(&mut buffer);
