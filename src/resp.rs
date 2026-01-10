@@ -1,5 +1,8 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use bytes::{Buf, BytesMut};
+
+/// Maximum length for an inline command line (64KB, matching Redis)
+const MAX_INLINE_SIZE: usize = 64 * 1024;
 
 /// RESP (REdis Serialization Protocol) data types
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +71,11 @@ fn find_crlf(buffer: &[u8]) -> Option<usize> {
 /// Converts it to a RESP array for uniform command processing
 fn parse_inline_command(buffer: &mut BytesMut) -> Result<Option<(RespValue, usize)>> {
     if let Some(pos) = find_crlf(buffer) {
+        // Reject oversized inline commands
+        if pos > MAX_INLINE_SIZE {
+            return Err(anyhow!("ERR Protocol error: too big inline request"));
+        }
+
         let line = &buffer[..pos];
 
         // Split the line by whitespace to get command and arguments
@@ -90,6 +98,10 @@ fn parse_inline_command(buffer: &mut BytesMut) -> Result<Option<(RespValue, usiz
         let consumed = pos + 2; // line + \r\n
         Ok(Some((RespValue::Array(Some(elements)), consumed)))
     } else {
+        // No CRLF found - check if buffer is getting too large (potential slowloris)
+        if buffer.len() > MAX_INLINE_SIZE {
+            return Err(anyhow!("ERR Protocol error: too big inline request"));
+        }
         Ok(None) // Need more data
     }
 }
@@ -472,6 +484,47 @@ mod tests {
                 RespValue::BulkString(Some(b"arg".to_vec())),
             ]))
         );
+    }
+
+    #[test]
+    fn parse_inline_oversized_with_crlf_returns_error() {
+        // Create a line larger than MAX_INLINE_SIZE (64KB)
+        let large_line = "A".repeat(65 * 1024);
+        let input = format!("{}\r\n", large_line);
+        let mut buffer = BytesMut::from(input.as_str());
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("too big inline request")
+        );
+    }
+
+    #[test]
+    fn parse_inline_oversized_without_crlf_returns_error() {
+        // Buffer larger than MAX_INLINE_SIZE without CRLF (slowloris protection)
+        let large_data = "A".repeat(65 * 1024);
+        let mut buffer = BytesMut::from(large_data.as_str());
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("too big inline request")
+        );
+    }
+
+    #[test]
+    fn parse_inline_at_max_size_succeeds() {
+        // Exactly at the limit should work
+        let line = "A".repeat(64 * 1024);
+        let input = format!("{}\r\n", line);
+        let mut buffer = BytesMut::from(input.as_str());
+        let result = RespValue::parse(&mut buffer);
+        assert!(result.is_ok());
     }
 
     #[test]
