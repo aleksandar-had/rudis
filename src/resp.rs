@@ -398,6 +398,83 @@ mod tests {
     }
 
     #[test]
+    fn parse_inline_with_tabs() {
+        let mut buffer = BytesMut::from("SET\tfoo\tbar\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"SET".to_vec())),
+                RespValue::BulkString(Some(b"foo".to_vec())),
+                RespValue::BulkString(Some(b"bar".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_unknown_command() {
+        // Unknown commands should still parse successfully at the RESP level
+        // Command validation happens in command.rs
+        let mut buffer = BytesMut::from("NOTACOMMAND arg1 arg2\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"NOTACOMMAND".to_vec())),
+                RespValue::BulkString(Some(b"arg1".to_vec())),
+                RespValue::BulkString(Some(b"arg2".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_random_garbage() {
+        // Random text is parsed as an inline command
+        let mut buffer = BytesMut::from("asdf1234!@#$\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![RespValue::BulkString(Some(
+                b"asdf1234!@#$".to_vec()
+            )),]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_only_whitespace() {
+        let mut buffer = BytesMut::from("   \t  \r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(result.0, RespValue::Array(Some(Vec::new())));
+    }
+
+    #[test]
+    fn parse_inline_special_characters() {
+        let mut buffer = BytesMut::from("GET key:with:colons\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"GET".to_vec())),
+                RespValue::BulkString(Some(b"key:with:colons".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
+    fn parse_inline_numeric_command() {
+        // Numbers as commands should parse (validation happens later)
+        let mut buffer = BytesMut::from("12345 arg\r\n");
+        let result = RespValue::parse(&mut buffer).unwrap().unwrap();
+        assert_eq!(
+            result.0,
+            RespValue::Array(Some(vec![
+                RespValue::BulkString(Some(b"12345".to_vec())),
+                RespValue::BulkString(Some(b"arg".to_vec())),
+            ]))
+        );
+    }
+
+    #[test]
     fn parse_invalid_integer_returns_error() {
         let mut buffer = BytesMut::from(":notanumber\r\n");
         let result = RespValue::parse(&mut buffer);
