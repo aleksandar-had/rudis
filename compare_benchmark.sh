@@ -45,6 +45,8 @@ cargo build --release --quiet
     echo ""
     echo "**System:** $(uname -s) $(uname -r) ($(uname -m))"
     echo ""
+    echo "> **Note:** These benchmarks are informal and may not be representative of real-world performance. The multi-threaded benchmark tests the client's ability to generate load, not necessarily the server's multi-threaded capabilities. AFAIK, Redis is primarily single-threaded for command execution."
+    echo ""
 } > "$OUTPUT_FILE"
 
 run_benchmark() {
