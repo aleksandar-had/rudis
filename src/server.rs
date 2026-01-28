@@ -27,6 +27,9 @@ impl Server {
 
     /// Run the server, accepting connections and handling them
     pub async fn run(&self) -> Result<()> {
+        // Start active expiration background task
+        let _expiration_handle = Store::start_active_expiration(self.store.clone());
+
         loop {
             let (socket, addr) = self.listener.accept().await?;
             println!("Accepted connection from {}", addr);

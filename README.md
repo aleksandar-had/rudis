@@ -2,12 +2,14 @@
 
 A from-scratch implementation of Redis in Rust, built for learning and tinkering.
 
-## Current Status: Phase 2 - Core Commands
+## Current Status: Phase 3 - TTL Commands & Active Expiration
 
 ### Implemented Features
 - TCP server listening on port 6379
 - RESP protocol parser (all 5 data types + inline commands)
 - Thread-safe data store with key expiration
+- Passive expiration (lazy deletion on access)
+- Active expiration (background task sampling expired keys)
 - Full redis-cli compatibility
 
 ### Supported Commands
@@ -26,6 +28,10 @@ A from-scratch implementation of Redis in Rust, built for learning and tinkering
 | `DECRBY key delta` | Decrement value by delta |
 | `MGET key [key ...]` | Get multiple keys at once |
 | `MSET key value [key value ...]` | Set multiple keys at once |
+| `EXPIRE key seconds` | Set key expiration (negative deletes) |
+| `TTL key` | Get time-to-live (-2 no key, -1 no expiry) |
+| `PERSIST key` | Remove expiration from key |
+| `KEYS pattern` | Find keys matching glob pattern (* ?) |
 
 ## Quick Start
 
@@ -66,6 +72,19 @@ redis-cli MGET a b c
 
 # Key with expiration
 redis-cli SETEX tempkey 60 "expires in 60 seconds"
+
+# TTL management
+redis-cli SET mykey "value"
+redis-cli EXPIRE mykey 300
+redis-cli TTL mykey
+# 300
+redis-cli PERSIST mykey
+redis-cli TTL mykey
+# -1
+
+# Find keys by pattern
+redis-cli KEYS "user:*"
+redis-cli KEYS "key?"
 ```
 
 ### Run Tests
@@ -109,13 +128,15 @@ src/
 
 ### Data Store
 - Thread-safe using `Arc<RwLock<HashMap>>`
-- Lazy expiration on key access
+- Passive expiration (lazy deletion on key access)
+- Active expiration (background task samples 20 keys every 100ms)
 - Supports binary data as values
 
 ## Roadmap
 
 - [x] Phase 1: TCP Server & RESP Parser
 - [x] Phase 2: Core Commands (GET, SET, DEL, INCR, etc.)
-- [ ] Phase 3: Advanced Commands (EXPIRE, TTL, KEYS, EXISTS)
+- [x] Phase 3: TTL Commands (EXPIRE, TTL, PERSIST, KEYS) & Active Expiration
+  - KEYS supports basic glob (* and ?) - full glob ([abc], [^abc], [a-z]) planned for later
 - [ ] Phase 4: Persistence (RDB, AOF)
 - [ ] Phase 5: Replication & Clustering

@@ -277,3 +277,143 @@ fn test_redis_cli_setex() {
     assert!(result.is_ok(), "GET after SETEX failed: {:?}", result);
     assert_eq!(result.unwrap(), "temporary");
 }
+
+// Phase 3 integration tests
+
+#[test]
+fn test_redis_cli_expire_ttl() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Set a key
+    run_redis_cli(&["SET", "ttlkey", "value"]).unwrap();
+
+    // Set expiration
+    let result = run_redis_cli(&["EXPIRE", "ttlkey", "100"]);
+    assert!(result.is_ok(), "EXPIRE failed: {:?}", result);
+    assert_eq!(result.unwrap(), "1");
+
+    // Check TTL
+    let result = run_redis_cli(&["TTL", "ttlkey"]);
+    assert!(result.is_ok(), "TTL failed: {:?}", result);
+    let ttl: i64 = result.unwrap().parse().unwrap();
+    assert!(ttl >= 99 && ttl <= 100, "TTL was {}", ttl);
+}
+
+#[test]
+fn test_redis_cli_expire_negative_deletes() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Set a key
+    run_redis_cli(&["SET", "negexpkey", "value"]).unwrap();
+
+    // Negative expire should delete the key
+    let result = run_redis_cli(&["EXPIRE", "negexpkey", "-1"]);
+    assert!(result.is_ok(), "EXPIRE negative failed: {:?}", result);
+    assert_eq!(result.unwrap(), "1");
+
+    // Key should be gone
+    let result = run_redis_cli(&["GET", "negexpkey"]);
+    let output = result.unwrap();
+    assert!(output.is_empty() || output == "(nil)");
+}
+
+#[test]
+fn test_redis_cli_ttl_no_expiry() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Set a key without expiration
+    run_redis_cli(&["SET", "noexpkey", "value"]).unwrap();
+
+    let result = run_redis_cli(&["TTL", "noexpkey"]);
+    assert!(result.is_ok(), "TTL failed: {:?}", result);
+    assert_eq!(result.unwrap(), "-1");
+}
+
+#[test]
+fn test_redis_cli_ttl_nonexistent() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    let result = run_redis_cli(&["TTL", "nonexistent_key_99999"]);
+    assert!(result.is_ok(), "TTL failed: {:?}", result);
+    assert_eq!(result.unwrap(), "-2");
+}
+
+#[test]
+fn test_redis_cli_persist() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Set key with expiration
+    run_redis_cli(&["SETEX", "persistkey", "100", "value"]).unwrap();
+
+    // Verify TTL exists
+    let result = run_redis_cli(&["TTL", "persistkey"]);
+    let ttl: i64 = result.unwrap().parse().unwrap();
+    assert!(ttl > 0);
+
+    // Remove expiration
+    let result = run_redis_cli(&["PERSIST", "persistkey"]);
+    assert!(result.is_ok(), "PERSIST failed: {:?}", result);
+    assert_eq!(result.unwrap(), "1");
+
+    // Verify no TTL
+    let result = run_redis_cli(&["TTL", "persistkey"]);
+    assert_eq!(result.unwrap(), "-1");
+}
+
+#[test]
+fn test_redis_cli_keys_pattern() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Clean up and set test keys
+    let _ = run_redis_cli(&["DEL", "keystest:a", "keystest:b", "keystest:c", "other"]);
+    run_redis_cli(&[
+        "MSET",
+        "keystest:a",
+        "1",
+        "keystest:b",
+        "2",
+        "keystest:c",
+        "3",
+        "other",
+        "4",
+    ])
+    .unwrap();
+
+    let result = run_redis_cli(&["KEYS", "keystest:*"]);
+    assert!(result.is_ok(), "KEYS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("keystest:a"));
+    assert!(output.contains("keystest:b"));
+    assert!(output.contains("keystest:c"));
+    assert!(!output.contains("other"));
+}
+
+#[test]
+fn test_redis_cli_keys_single_char() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Clean up and set test keys
+    let _ = run_redis_cli(&["DEL", "k1", "k2", "k10"]);
+    run_redis_cli(&["MSET", "k1", "a", "k2", "b", "k10", "c"]).unwrap();
+
+    let result = run_redis_cli(&["KEYS", "k?"]);
+    assert!(result.is_ok(), "KEYS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("k1"));
+    assert!(output.contains("k2"));
+    assert!(!output.contains("k10")); // k10 has 2 chars after k
+}
