@@ -417,3 +417,120 @@ fn test_redis_cli_keys_single_char() {
     assert!(output.contains("k2"));
     assert!(!output.contains("k10")); // k10 has 2 chars after k
 }
+
+#[test]
+fn test_redis_cli_active_expiration_basic() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Clean up any existing test keys
+    let _ = run_redis_cli(&[
+        "DEL",
+        "active_short1",
+        "active_short2",
+        "active_short3",
+        "active_short4",
+        "active_short5",
+        "active_long1",
+        "active_long2",
+        "active_long3",
+    ]);
+
+    // Create 5 keys with SHORT TTL (2 seconds)
+    for i in 1..=5 {
+        let key = format!("active_short{}", i);
+        let value = format!("short_value{}", i);
+        let result = run_redis_cli(&["SETEX", &key, "2", &value]);
+        assert!(result.is_ok(), "SETEX failed for {}: {:?}", key, result);
+    }
+
+    // Create 3 keys with LONG TTL (60 seconds)
+    for i in 1..=3 {
+        let key = format!("active_long{}", i);
+        let value = format!("long_value{}", i);
+        let result = run_redis_cli(&["SETEX", &key, "60", &value]);
+        assert!(result.is_ok(), "SETEX failed for {}: {:?}", key, result);
+    }
+
+    // Verify all 8 keys exist
+    let result = run_redis_cli(&["KEYS", "active_*"]);
+    assert!(result.is_ok(), "KEYS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("active_short1"), "Missing active_short1");
+    assert!(output.contains("active_short2"), "Missing active_short2");
+    assert!(output.contains("active_short3"), "Missing active_short3");
+    assert!(output.contains("active_short4"), "Missing active_short4");
+    assert!(output.contains("active_short5"), "Missing active_short5");
+    assert!(output.contains("active_long1"), "Missing active_long1");
+    assert!(output.contains("active_long2"), "Missing active_long2");
+    assert!(output.contains("active_long3"), "Missing active_long3");
+
+    // Wait for short TTL to expire + buffer for background task
+    // (2 seconds TTL + 1 second buffer = ~30 background task cycles at 100ms)
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    // Verify short-TTL keys are gone (actively expired by background task)
+    let result = run_redis_cli(&["KEYS", "active_short*"]);
+    assert!(result.is_ok(), "KEYS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(
+        output.is_empty() || output == "1)" || !output.contains("active_short"),
+        "Expected short-TTL keys to be expired, but found: {}",
+        output
+    );
+
+    // Verify long-TTL keys still exist
+    let result = run_redis_cli(&["KEYS", "active_long*"]);
+    assert!(result.is_ok(), "KEYS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("active_long1"), "active_long1 should still exist");
+    assert!(output.contains("active_long2"), "active_long2 should still exist");
+    assert!(output.contains("active_long3"), "active_long3 should still exist");
+
+    // Clean up remaining keys
+    let _ = run_redis_cli(&["DEL", "active_long1", "active_long2", "active_long3"]);
+}
+
+#[test]
+fn test_redis_cli_active_expiration_without_access() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Clean up any existing test keys
+    let _ = run_redis_cli(&["DEL", "noaccess1", "noaccess2", "noaccess3"]);
+
+    // Create 3 keys with SHORT TTL (2 seconds)
+    for i in 1..=3 {
+        let key = format!("noaccess{}", i);
+        let value = format!("value{}", i);
+        let result = run_redis_cli(&["SETEX", &key, "2", &value]);
+        assert!(result.is_ok(), "SETEX failed for {}: {:?}", key, result);
+    }
+
+    // Verify keys were created (using KEYS, not GET)
+    let result = run_redis_cli(&["KEYS", "noaccess*"]);
+    assert!(result.is_ok(), "KEYS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("noaccess1"), "Missing noaccess1");
+    assert!(output.contains("noaccess2"), "Missing noaccess2");
+    assert!(output.contains("noaccess3"), "Missing noaccess3");
+
+    // CRITICAL: Do NOT access these keys with GET
+    // This ensures deletion is via active expiration, not lazy deletion
+
+    // Wait for TTL to expire + buffer for background task
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    // Verify keys are gone WITHOUT having accessed them
+    // This proves active expiration (background task) deleted them
+    let result = run_redis_cli(&["KEYS", "noaccess*"]);
+    assert!(result.is_ok(), "KEYS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(
+        output.is_empty() || output == "1)" || !output.contains("noaccess"),
+        "Expected keys to be actively expired without access, but found: {}",
+        output
+    );
+}
