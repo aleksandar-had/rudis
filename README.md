@@ -98,14 +98,23 @@ cargo test
 
 ### Benchmarking
 ```bash
-# Compare performance against Redis (runs both single and multi-threaded)
+# Phase 2: Compare basic commands (PING, SET, GET)
 ./compare_benchmark.sh
+
+# Phase 3: Benchmark TTL commands (EXPIRE, TTL, PERSIST)
+./compare_benchmark.sh --phase3-ttl
+
+# Phase 3: Benchmark KEYS scaling (1K and 10K keys)
+./compare_benchmark.sh --phase3-keys
+
+# Phase 3: Run all Phase 3 benchmarks
+./compare_benchmark.sh --phase3-all
 
 # Custom benchmark args
 ./compare_benchmark.sh -t ping,set,get -n 50000 -c 100 --threads 4 -q
 ```
 
-Results are saved to `benchmark_results.md`.
+Results are appended to `benchmark_results.md`.
 
 ## Architecture
 
