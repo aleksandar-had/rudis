@@ -17,6 +17,10 @@ pub enum Command {
     DecrBy(String, i64),
     MGet(Vec<String>),
     MSet(Vec<(String, Vec<u8>)>),
+    Expire(String, i64),
+    Ttl(String),
+    Persist(String),
+    Keys(String),
 }
 
 impl Command {
@@ -40,6 +44,10 @@ impl Command {
                     "DECRBY" => parse_decrby(args),
                     "MGET" => parse_mget(args),
                     "MSET" => parse_mset(args),
+                    "EXPIRE" => parse_expire(args),
+                    "TTL" => parse_ttl(args),
+                    "PERSIST" => parse_persist(args),
+                    "KEYS" => parse_keys(args),
                     _ => Err(anyhow!("ERR unknown command '{}'", cmd_name)),
                 }
             }
@@ -100,16 +108,38 @@ impl Command {
 
             Command::MGet(keys) => {
                 let values = store.mget(keys).await;
-                let resp_values: Vec<RespValue> = values
-                    .into_iter()
-                    .map(|v| RespValue::BulkString(v))
-                    .collect();
+                let resp_values: Vec<RespValue> =
+                    values.into_iter().map(RespValue::BulkString).collect();
                 RespValue::Array(Some(resp_values))
             }
 
             Command::MSet(pairs) => {
                 store.mset(pairs.clone()).await;
                 RespValue::SimpleString("OK".to_string())
+            }
+
+            Command::Expire(key, seconds) => {
+                let result = store.expire(key, *seconds).await;
+                RespValue::Integer(result)
+            }
+
+            Command::Ttl(key) => {
+                let ttl = store.ttl(key).await;
+                RespValue::Integer(ttl)
+            }
+
+            Command::Persist(key) => {
+                let result = store.persist(key).await;
+                RespValue::Integer(result)
+            }
+
+            Command::Keys(pattern) => {
+                let keys = store.keys(pattern).await;
+                let resp_values: Vec<RespValue> = keys
+                    .into_iter()
+                    .map(|k| RespValue::BulkString(Some(k.into_bytes())))
+                    .collect();
+                RespValue::Array(Some(resp_values))
             }
         }
     }
@@ -254,7 +284,7 @@ fn parse_mget(args: &[RespValue]) -> Result<Command> {
 }
 
 fn parse_mset(args: &[RespValue]) -> Result<Command> {
-    if args.is_empty() || args.len() % 2 != 0 {
+    if args.is_empty() || !args.len().is_multiple_of(2) {
         return Err(anyhow!("ERR wrong number of arguments for 'mset' command"));
     }
     let mut pairs = Vec::new();
@@ -264,6 +294,43 @@ fn parse_mset(args: &[RespValue]) -> Result<Command> {
         pairs.push((key, value));
     }
     Ok(Command::MSet(pairs))
+}
+
+fn parse_expire(args: &[RespValue]) -> Result<Command> {
+    if args.len() != 2 {
+        return Err(anyhow!(
+            "ERR wrong number of arguments for 'expire' command"
+        ));
+    }
+    let key = extract_bulk_string(&args[0])?;
+    let seconds = extract_integer(&args[1])?;
+    Ok(Command::Expire(key, seconds))
+}
+
+fn parse_ttl(args: &[RespValue]) -> Result<Command> {
+    if args.len() != 1 {
+        return Err(anyhow!("ERR wrong number of arguments for 'ttl' command"));
+    }
+    let key = extract_bulk_string(&args[0])?;
+    Ok(Command::Ttl(key))
+}
+
+fn parse_persist(args: &[RespValue]) -> Result<Command> {
+    if args.len() != 1 {
+        return Err(anyhow!(
+            "ERR wrong number of arguments for 'persist' command"
+        ));
+    }
+    let key = extract_bulk_string(&args[0])?;
+    Ok(Command::Persist(key))
+}
+
+fn parse_keys(args: &[RespValue]) -> Result<Command> {
+    if args.len() != 1 {
+        return Err(anyhow!("ERR wrong number of arguments for 'keys' command"));
+    }
+    let pattern = extract_bulk_string(&args[0])?;
+    Ok(Command::Keys(pattern))
 }
 
 #[cfg(test)]
