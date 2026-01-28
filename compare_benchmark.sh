@@ -321,17 +321,19 @@ fi
 
 # Run selected benchmarks
 if [ "$RUN_PHASE2" = true ]; then
-    # Initialize markdown output for Phase 2 (overwrites existing file)
-    {
-        echo "# Redis vs Rudis Benchmark Results"
-        echo ""
-        echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')"
-        echo ""
-        echo "**System:** $(uname -s) $(uname -r) ($(uname -m))"
-        echo ""
-        echo "> **Note:** These benchmarks are informal and may not be representative of real-world performance. The multi-threaded benchmark tests the client's ability to generate load, not necessarily the server's multi-threaded capabilities. AFAIK, Redis is primarily single-threaded for command execution."
-        echo ""
-    } > "$OUTPUT_FILE"
+    # Create file with header if it doesn't exist, otherwise append
+    if [ ! -f "$OUTPUT_FILE" ]; then
+        {
+            echo "# Redis vs Rudis Benchmark Results"
+            echo ""
+            echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')"
+            echo ""
+            echo "**System:** $(uname -s) $(uname -r) ($(uname -m))"
+            echo ""
+            echo "> **Note:** These benchmarks are informal and may not be representative of real-world performance. The multi-threaded benchmark tests the client's ability to generate load, not necessarily the server's multi-threaded capabilities. AFAIK, Redis is primarily single-threaded for command execution."
+            echo ""
+        } > "$OUTPUT_FILE"
+    fi
 
     run_benchmark "$SINGLE_THREAD_ARGS" "Single-Threaded (50 clients)"
     run_benchmark "$MULTI_THREAD_ARGS" "Multi-Threaded (100 clients, 8 threads)"

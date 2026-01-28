@@ -1,6 +1,6 @@
 # Redis vs Rudis Benchmark Results
 
-**Date:** 2026-01-28 20:11:30
+**Date:** 2026-01-28 20:21:30
 
 **System:** Darwin 25.2.0 (arm64)
 
@@ -10,10 +10,10 @@
 
 | Command | Redis (req/s) | Rudis (req/s) | Ratio |
 |---------|---------------|---------------|-------|
-| PING_INLINE | 136986 | 103093 | .75x |
-| PING_MBULK | 217391 | 138889 | .63x |
-| SET | 227273 | 133333 | .58x |
-| GET | 217391 | 138889 | .63x |
+| PING_INLINE | 126582 | 104167 | .82x |
+| PING_MBULK | 222222 | 140845 | .63x |
+| SET | 212766 | 140845 | .66x |
+| GET | 227273 | 138889 | .61x |
 
 ## Multi-Threaded (100 clients, 8 threads)
 
@@ -21,9 +21,9 @@
 
 | Command | Redis (req/s) | Rudis (req/s) | Ratio |
 |---------|---------------|---------------|-------|
-| PING_INLINE | 99800 | 99800 | 1.00x |
-| PING_MBULK | 99900 | 99800 | .99x |
-| SET | 99800 | 99800 | 1.00x |
+| PING_INLINE | 99900 | 99800 | .99x |
+| PING_MBULK | 99800 | 99800 | 1.00x |
+| SET | 99900 | 99900 | 1.00x |
 | GET | 99800 | 99900 | 1.00x |
 
 ## Phase 3 - TTL Commands (50 clients) - TTL
