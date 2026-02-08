@@ -1,22 +1,18 @@
 use std::collections::HashMap;
 
-use super::value::{DataType, StoredValue};
 use super::Store;
+use super::value::{DataType, StoredValue};
 
 impl Store {
     /// Set fields in a hash. Creates the hash if it doesn't exist.
     /// Returns the number of fields that were added (not updated).
-    pub async fn hset(
-        &self,
-        key: String,
-        pairs: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> Result<i64, String> {
+    pub async fn hset(&self, key: String, pairs: Vec<(Vec<u8>, Vec<u8>)>) -> Result<i64, String> {
         let mut write_guard = self.data.write().await;
 
-        if let Some(existing) = write_guard.get(&key) {
-            if existing.is_expired() {
-                write_guard.remove(&key);
-            }
+        if let Some(existing) = write_guard.get(&key)
+            && existing.is_expired()
+        {
+            write_guard.remove(&key);
         }
 
         let stored = write_guard
@@ -146,10 +142,7 @@ mod tests {
     async fn test_hset_update_existing_field() {
         let store = Store::new();
         store
-            .hset(
-                "hash".to_string(),
-                vec![(b"f1".to_vec(), b"v1".to_vec())],
-            )
+            .hset("hash".to_string(), vec![(b"f1".to_vec(), b"v1".to_vec())])
             .await
             .unwrap();
 
@@ -173,10 +166,7 @@ mod tests {
     async fn test_hget_existing_field() {
         let store = Store::new();
         store
-            .hset(
-                "hash".to_string(),
-                vec![(b"f1".to_vec(), b"v1".to_vec())],
-            )
+            .hset("hash".to_string(), vec![(b"f1".to_vec(), b"v1".to_vec())])
             .await
             .unwrap();
 
@@ -187,10 +177,7 @@ mod tests {
     async fn test_hget_nonexistent_field() {
         let store = Store::new();
         store
-            .hset(
-                "hash".to_string(),
-                vec![(b"f1".to_vec(), b"v1".to_vec())],
-            )
+            .hset("hash".to_string(), vec![(b"f1".to_vec(), b"v1".to_vec())])
             .await
             .unwrap();
 
@@ -231,10 +218,7 @@ mod tests {
     async fn test_hdel_nonexistent_fields() {
         let store = Store::new();
         store
-            .hset(
-                "hash".to_string(),
-                vec![(b"f1".to_vec(), b"v1".to_vec())],
-            )
+            .hset("hash".to_string(), vec![(b"f1".to_vec(), b"v1".to_vec())])
             .await
             .unwrap();
 
@@ -245,9 +229,7 @@ mod tests {
     #[tokio::test]
     async fn test_hdel_nonexistent_key() {
         let store = Store::new();
-        let result = store
-            .hdel("nonexistent", vec![b"f1".to_vec()])
-            .await;
+        let result = store.hdel("nonexistent", vec![b"f1".to_vec()]).await;
         assert_eq!(result, Ok(0));
     }
 
@@ -255,10 +237,7 @@ mod tests {
     async fn test_hdel_auto_deletes_empty_hash() {
         let store = Store::new();
         store
-            .hset(
-                "hash".to_string(),
-                vec![(b"f1".to_vec(), b"v1".to_vec())],
-            )
+            .hset("hash".to_string(), vec![(b"f1".to_vec(), b"v1".to_vec())])
             .await
             .unwrap();
 

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use super::glob::glob_match;
 use super::Store;
+use super::glob::glob_match;
 
 impl Store {
     /// Set expiration on an existing key.

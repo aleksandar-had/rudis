@@ -1,11 +1,17 @@
 use std::collections::VecDeque;
 
-use super::value::{DataType, StoredValue};
 use super::Store;
+use super::value::{DataType, StoredValue};
 
-/// Normalize a Redis-style index (supports negative indices) to a bounded usize range.
-/// Returns None if the normalized range is empty.
+/// Normalize a Redis-style index range to bounded usize values.
+/// Returns None if the normalized range is empty or the list is empty.
+/// Negative indices count from the end: -1 = last, -2 = second-to-last.
+/// Out-of-bounds start is clamped to 0, out-of-bounds stop is clamped to len-1.
 fn normalize_range(start: i64, stop: i64, len: usize) -> Option<(usize, usize)> {
+    if len == 0 {
+        return None;
+    }
+
     let len = len as i64;
 
     let start = if start < 0 {
@@ -34,10 +40,10 @@ impl Store {
         let mut write_guard = self.data.write().await;
 
         // If key exists but is expired, remove it first
-        if let Some(existing) = write_guard.get(&key) {
-            if existing.is_expired() {
-                write_guard.remove(&key);
-            }
+        if let Some(existing) = write_guard.get(&key)
+            && existing.is_expired()
+        {
+            write_guard.remove(&key);
         }
 
         let stored = write_guard
@@ -58,10 +64,10 @@ impl Store {
     pub async fn rpush(&self, key: String, elements: Vec<Vec<u8>>) -> Result<i64, String> {
         let mut write_guard = self.data.write().await;
 
-        if let Some(existing) = write_guard.get(&key) {
-            if existing.is_expired() {
-                write_guard.remove(&key);
-            }
+        if let Some(existing) = write_guard.get(&key)
+            && existing.is_expired()
+        {
+            write_guard.remove(&key);
         }
 
         let stored = write_guard
@@ -127,12 +133,7 @@ impl Store {
 
     /// Get a range of elements from a list. Supports negative indices.
     /// Returns empty vec for non-existent keys or empty ranges.
-    pub async fn lrange(
-        &self,
-        key: &str,
-        start: i64,
-        stop: i64,
-    ) -> Result<Vec<Vec<u8>>, String> {
+    pub async fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<Vec<Vec<u8>>, String> {
         let read_guard = self.data.read().await;
 
         if let Some(stored) = read_guard.get(key) {
@@ -197,7 +198,10 @@ mod tests {
         let store = Store::new();
         // LPUSH mylist a b c → list is [c, b, a]
         let result = store
-            .lpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .lpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await;
         assert_eq!(result, Ok(3));
 
@@ -217,7 +221,10 @@ mod tests {
         let store = Store::new();
         // RPUSH mylist a b c → list is [a, b, c]
         let result = store
-            .rpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .rpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await;
         assert_eq!(result, Ok(3));
 
@@ -229,7 +236,10 @@ mod tests {
     async fn test_lpop_from_list() {
         let store = Store::new();
         store
-            .rpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .rpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
@@ -243,7 +253,10 @@ mod tests {
     async fn test_rpop_from_list() {
         let store = Store::new();
         store
-            .rpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .rpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
@@ -269,7 +282,10 @@ mod tests {
     async fn test_lrange_full() {
         let store = Store::new();
         store
-            .rpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .rpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
@@ -284,7 +300,10 @@ mod tests {
     async fn test_lrange_partial() {
         let store = Store::new();
         store
-            .rpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .rpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
@@ -296,7 +315,10 @@ mod tests {
     async fn test_lrange_negative_indices() {
         let store = Store::new();
         store
-            .rpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .rpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
@@ -341,7 +363,10 @@ mod tests {
     async fn test_llen() {
         let store = Store::new();
         store
-            .rpush("list".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .rpush(
+                "list".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
@@ -359,7 +384,9 @@ mod tests {
         let store = Store::new();
         store.set("mystring".to_string(), b"value".to_vec()).await;
 
-        let result = store.lpush("mystring".to_string(), vec![b"a".to_vec()]).await;
+        let result = store
+            .lpush("mystring".to_string(), vec![b"a".to_vec()])
+            .await;
         assert_eq!(result, Err(WRONGTYPE_ERR.to_string()));
     }
 

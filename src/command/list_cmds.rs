@@ -1,14 +1,12 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use super::parse::{extract_bulk_bytes, extract_bulk_string, extract_integer};
 use super::Command;
+use super::parse::{extract_bulk_bytes, extract_bulk_string, extract_integer};
 use crate::resp::RespValue;
 
 pub fn parse_lpush(args: &[RespValue]) -> Result<Command> {
     if args.len() < 2 {
-        return Err(anyhow!(
-            "ERR wrong number of arguments for 'lpush' command"
-        ));
+        return Err(anyhow!("ERR wrong number of arguments for 'lpush' command"));
     }
     let key = extract_bulk_string(&args[0])?;
     let elements: Result<Vec<Vec<u8>>> = args[1..].iter().map(extract_bulk_bytes).collect();
@@ -17,9 +15,7 @@ pub fn parse_lpush(args: &[RespValue]) -> Result<Command> {
 
 pub fn parse_rpush(args: &[RespValue]) -> Result<Command> {
     if args.len() < 2 {
-        return Err(anyhow!(
-            "ERR wrong number of arguments for 'rpush' command"
-        ));
+        return Err(anyhow!("ERR wrong number of arguments for 'rpush' command"));
     }
     let key = extract_bulk_string(&args[0])?;
     let elements: Result<Vec<Vec<u8>>> = args[1..].iter().map(extract_bulk_bytes).collect();

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use super::value::{DataType, StoredValue};
 use super::Store;
+use super::value::{DataType, StoredValue};
 
 impl Store {
     /// Add members to a set. Creates the set if it doesn't exist.
@@ -9,10 +9,10 @@ impl Store {
     pub async fn sadd(&self, key: String, members: Vec<Vec<u8>>) -> Result<i64, String> {
         let mut write_guard = self.data.write().await;
 
-        if let Some(existing) = write_guard.get(&key) {
-            if existing.is_expired() {
-                write_guard.remove(&key);
-            }
+        if let Some(existing) = write_guard.get(&key)
+            && existing.is_expired()
+        {
+            write_guard.remove(&key);
         }
 
         let stored = write_guard
@@ -125,7 +125,10 @@ mod tests {
     async fn test_sadd_new_members() {
         let store = Store::new();
         let result = store
-            .sadd("set".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .sadd(
+                "set".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await;
         assert_eq!(result, Ok(3));
     }
@@ -149,13 +152,14 @@ mod tests {
     async fn test_srem_existing_members() {
         let store = Store::new();
         store
-            .sadd("set".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .sadd(
+                "set".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
-        let result = store
-            .srem("set", vec![b"a".to_vec(), b"c".to_vec()])
-            .await;
+        let result = store.srem("set", vec![b"a".to_vec(), b"c".to_vec()]).await;
         assert_eq!(result, Ok(2));
     }
 
@@ -197,16 +201,16 @@ mod tests {
     async fn test_smembers() {
         let store = Store::new();
         store
-            .sadd("set".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .sadd(
+                "set".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 
         let mut members = store.smembers("set").await.unwrap();
         members.sort();
-        assert_eq!(
-            members,
-            vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]
-        );
+        assert_eq!(members, vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]);
     }
 
     #[tokio::test]
@@ -248,7 +252,10 @@ mod tests {
     async fn test_scard() {
         let store = Store::new();
         store
-            .sadd("set".to_string(), vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()])
+            .sadd(
+                "set".to_string(),
+                vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
+            )
             .await
             .unwrap();
 

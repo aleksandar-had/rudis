@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use super::parse::{extract_bulk_bytes, extract_bulk_string};
 use super::Command;
+use super::parse::{extract_bulk_bytes, extract_bulk_string};
 use crate::resp::RespValue;
 
 pub fn parse_sadd(args: &[RespValue]) -> Result<Command> {
@@ -45,9 +45,7 @@ pub fn parse_sismember(args: &[RespValue]) -> Result<Command> {
 
 pub fn parse_scard(args: &[RespValue]) -> Result<Command> {
     if args.len() != 1 {
-        return Err(anyhow!(
-            "ERR wrong number of arguments for 'scard' command"
-        ));
+        return Err(anyhow!("ERR wrong number of arguments for 'scard' command"));
     }
     let key = extract_bulk_string(&args[0])?;
     Ok(Command::SCard(key))

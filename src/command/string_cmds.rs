@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use super::parse::{extract_bulk_bytes, extract_bulk_string, extract_integer};
 use super::Command;
+use super::parse::{extract_bulk_bytes, extract_bulk_string, extract_integer};
 use crate::resp::RespValue;
 
 pub fn parse_ping(args: &[RespValue]) -> Result<Command> {

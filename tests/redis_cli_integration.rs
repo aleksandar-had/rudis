@@ -484,9 +484,18 @@ fn test_redis_cli_active_expiration_basic() {
     let result = run_redis_cli(&["KEYS", "active_long*"]);
     assert!(result.is_ok(), "KEYS failed: {:?}", result);
     let output = result.unwrap();
-    assert!(output.contains("active_long1"), "active_long1 should still exist");
-    assert!(output.contains("active_long2"), "active_long2 should still exist");
-    assert!(output.contains("active_long3"), "active_long3 should still exist");
+    assert!(
+        output.contains("active_long1"),
+        "active_long1 should still exist"
+    );
+    assert!(
+        output.contains("active_long2"),
+        "active_long2 should still exist"
+    );
+    assert!(
+        output.contains("active_long3"),
+        "active_long3 should still exist"
+    );
 
     // Clean up remaining keys
     let _ = run_redis_cli(&["DEL", "active_long1", "active_long2", "active_long3"]);
@@ -533,4 +542,216 @@ fn test_redis_cli_active_expiration_without_access() {
         "Expected keys to be actively expired without access, but found: {}",
         output
     );
+}
+
+// Phase 4 integration tests - Data Structures
+
+#[test]
+fn test_redis_cli_list_operations() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    // Clean up
+    let _ = run_redis_cli(&["DEL", "intlist"]);
+
+    // LPUSH
+    let result = run_redis_cli(&["LPUSH", "intlist", "a", "b", "c"]);
+    assert!(result.is_ok(), "LPUSH failed: {:?}", result);
+    assert_eq!(result.unwrap(), "3");
+
+    // LRANGE full list (LPUSH a b c => [c, b, a])
+    let result = run_redis_cli(&["LRANGE", "intlist", "0", "-1"]);
+    assert!(result.is_ok(), "LRANGE failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("c"), "Expected 'c' in output: {}", output);
+    assert!(output.contains("b"), "Expected 'b' in output: {}", output);
+    assert!(output.contains("a"), "Expected 'a' in output: {}", output);
+
+    // LLEN
+    let result = run_redis_cli(&["LLEN", "intlist"]);
+    assert!(result.is_ok(), "LLEN failed: {:?}", result);
+    assert_eq!(result.unwrap(), "3");
+
+    // LPOP
+    let result = run_redis_cli(&["LPOP", "intlist"]);
+    assert!(result.is_ok(), "LPOP failed: {:?}", result);
+    assert_eq!(result.unwrap(), "c");
+
+    // RPOP
+    let result = run_redis_cli(&["RPOP", "intlist"]);
+    assert!(result.is_ok(), "RPOP failed: {:?}", result);
+    assert_eq!(result.unwrap(), "a");
+
+    // LLEN after pops
+    let result = run_redis_cli(&["LLEN", "intlist"]);
+    assert_eq!(result.unwrap(), "1");
+
+    // Clean up
+    let _ = run_redis_cli(&["DEL", "intlist"]);
+}
+
+#[test]
+fn test_redis_cli_rpush_and_lrange() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    let _ = run_redis_cli(&["DEL", "rpushlist"]);
+
+    // RPUSH
+    let result = run_redis_cli(&["RPUSH", "rpushlist", "x", "y", "z"]);
+    assert_eq!(result.unwrap(), "3");
+
+    // LRANGE partial
+    let result = run_redis_cli(&["LRANGE", "rpushlist", "0", "1"]);
+    assert!(result.is_ok(), "LRANGE failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("x"));
+    assert!(output.contains("y"));
+
+    let _ = run_redis_cli(&["DEL", "rpushlist"]);
+}
+
+#[test]
+fn test_redis_cli_set_operations() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    let _ = run_redis_cli(&["DEL", "intset"]);
+
+    // SADD
+    let result = run_redis_cli(&["SADD", "intset", "a", "b", "c"]);
+    assert!(result.is_ok(), "SADD failed: {:?}", result);
+    assert_eq!(result.unwrap(), "3");
+
+    // SADD duplicates
+    let result = run_redis_cli(&["SADD", "intset", "b", "d"]);
+    assert_eq!(result.unwrap(), "1"); // Only 'd' is new
+
+    // SCARD
+    let result = run_redis_cli(&["SCARD", "intset"]);
+    assert_eq!(result.unwrap(), "4");
+
+    // SISMEMBER
+    let result = run_redis_cli(&["SISMEMBER", "intset", "a"]);
+    assert_eq!(result.unwrap(), "1");
+
+    let result = run_redis_cli(&["SISMEMBER", "intset", "z"]);
+    assert_eq!(result.unwrap(), "0");
+
+    // SMEMBERS
+    let result = run_redis_cli(&["SMEMBERS", "intset"]);
+    assert!(result.is_ok(), "SMEMBERS failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("a"));
+    assert!(output.contains("b"));
+    assert!(output.contains("c"));
+    assert!(output.contains("d"));
+
+    // SREM
+    let result = run_redis_cli(&["SREM", "intset", "a", "c"]);
+    assert_eq!(result.unwrap(), "2");
+
+    let result = run_redis_cli(&["SCARD", "intset"]);
+    assert_eq!(result.unwrap(), "2");
+
+    let _ = run_redis_cli(&["DEL", "intset"]);
+}
+
+#[test]
+fn test_redis_cli_hash_operations() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    let _ = run_redis_cli(&["DEL", "inthash"]);
+
+    // HSET
+    let result = run_redis_cli(&["HSET", "inthash", "name", "alice", "age", "30"]);
+    assert!(result.is_ok(), "HSET failed: {:?}", result);
+    assert_eq!(result.unwrap(), "2");
+
+    // HGET
+    let result = run_redis_cli(&["HGET", "inthash", "name"]);
+    assert_eq!(result.unwrap(), "alice");
+
+    let result = run_redis_cli(&["HGET", "inthash", "age"]);
+    assert_eq!(result.unwrap(), "30");
+
+    // HGET nonexistent field
+    let result = run_redis_cli(&["HGET", "inthash", "nonexistent"]);
+    let output = result.unwrap();
+    assert!(output.is_empty() || output == "(nil)");
+
+    // HLEN
+    let result = run_redis_cli(&["HLEN", "inthash"]);
+    assert_eq!(result.unwrap(), "2");
+
+    // HSET update existing field
+    let result = run_redis_cli(&["HSET", "inthash", "age", "31"]);
+    assert_eq!(result.unwrap(), "0"); // No new fields
+
+    let result = run_redis_cli(&["HGET", "inthash", "age"]);
+    assert_eq!(result.unwrap(), "31");
+
+    // HGETALL
+    let result = run_redis_cli(&["HGETALL", "inthash"]);
+    assert!(result.is_ok(), "HGETALL failed: {:?}", result);
+    let output = result.unwrap();
+    assert!(output.contains("name"));
+    assert!(output.contains("alice"));
+    assert!(output.contains("age"));
+    assert!(output.contains("31"));
+
+    // HDEL
+    let result = run_redis_cli(&["HDEL", "inthash", "name"]);
+    assert_eq!(result.unwrap(), "1");
+
+    let result = run_redis_cli(&["HLEN", "inthash"]);
+    assert_eq!(result.unwrap(), "1");
+
+    let _ = run_redis_cli(&["DEL", "inthash"]);
+}
+
+#[test]
+fn test_redis_cli_wrongtype_error() {
+    if skip_if_unavailable() {
+        return;
+    }
+
+    let _ = run_redis_cli(&["DEL", "wtkey"]);
+
+    // Set a string key
+    run_redis_cli(&["SET", "wtkey", "hello"]).unwrap();
+
+    // Try list operation on string key
+    let result = run_redis_cli(&["LPUSH", "wtkey", "x"]);
+    let output = result.unwrap();
+    assert!(
+        output.contains("WRONGTYPE"),
+        "Expected WRONGTYPE error, got: {}",
+        output
+    );
+
+    // Try set operation on string key
+    let result = run_redis_cli(&["SADD", "wtkey", "x"]);
+    let output = result.unwrap();
+    assert!(
+        output.contains("WRONGTYPE"),
+        "Expected WRONGTYPE error, got: {}",
+        output
+    );
+
+    // Try hash operation on string key
+    let result = run_redis_cli(&["HSET", "wtkey", "f", "v"]);
+    let output = result.unwrap();
+    assert!(
+        output.contains("WRONGTYPE"),
+        "Expected WRONGTYPE error, got: {}",
+        output
+    );
+
+    let _ = run_redis_cli(&["DEL", "wtkey"]);
 }

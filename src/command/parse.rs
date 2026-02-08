@@ -1,5 +1,5 @@
 use crate::resp::RespValue;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 /// Extract a UTF-8 string from a RESP value
 pub fn extract_bulk_string(value: &RespValue) -> Result<String> {

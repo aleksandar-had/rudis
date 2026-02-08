@@ -133,3 +133,19 @@ This script:
 - INCR on non-integer value (error handling)
 - MGET/MSET (batch operations)
 - redis-cli compatibility for all commands
+
+### Phase 3 Coverage
+- EXPIRE command (set, negative/zero deletes key)
+- TTL command (with expiry, no expiry, nonexistent key)
+- PERSIST command (remove expiry, no expiry to remove)
+- KEYS command (glob patterns: *, ?)
+- Active expiration (background task deletes expired keys)
+- Expired key exclusion from KEYS results
+
+### Phase 4 Coverage
+- DataType enum (String, List, Set, Hash)
+- WRONGTYPE errors for cross-type operations
+- **Lists**: LPUSH/RPUSH (single & multiple elements), LPOP/RPOP, LRANGE (positive, negative, out-of-bounds indices), LLEN, auto-delete empty lists
+- **Sets**: SADD (new & duplicate members), SREM, SMEMBERS, SISMEMBER, SCARD, auto-delete empty sets
+- **Hashes**: HSET (new & update fields), HGET, HDEL, HGETALL, HLEN, auto-delete empty hashes
+- redis-cli integration for all new commands

@@ -7,7 +7,7 @@ mod ttl_cmds;
 
 use crate::resp::RespValue;
 use crate::store::Store;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use parse::extract_bulk_string;
 
 /// Represents a Redis command
@@ -215,18 +215,16 @@ impl Command {
                 Err(e) => RespValue::Error(e),
             },
 
-            Command::LRange(key, start, stop) => {
-                match store.lrange(key, *start, *stop).await {
-                    Ok(elements) => {
-                        let resp_values: Vec<RespValue> = elements
-                            .into_iter()
-                            .map(|e| RespValue::BulkString(Some(e)))
-                            .collect();
-                        RespValue::Array(Some(resp_values))
-                    }
-                    Err(e) => RespValue::Error(e),
+            Command::LRange(key, start, stop) => match store.lrange(key, *start, *stop).await {
+                Ok(elements) => {
+                    let resp_values: Vec<RespValue> = elements
+                        .into_iter()
+                        .map(|e| RespValue::BulkString(Some(e)))
+                        .collect();
+                    RespValue::Array(Some(resp_values))
                 }
-            }
+                Err(e) => RespValue::Error(e),
+            },
 
             Command::LLen(key) => match store.llen(key).await {
                 Ok(len) => RespValue::Integer(len),
@@ -234,19 +232,15 @@ impl Command {
             },
 
             // Set commands
-            Command::SAdd(key, members) => {
-                match store.sadd(key.clone(), members.clone()).await {
-                    Ok(count) => RespValue::Integer(count),
-                    Err(e) => RespValue::Error(e),
-                }
-            }
+            Command::SAdd(key, members) => match store.sadd(key.clone(), members.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
 
-            Command::SRem(key, members) => {
-                match store.srem(key, members.clone()).await {
-                    Ok(count) => RespValue::Integer(count),
-                    Err(e) => RespValue::Error(e),
-                }
-            }
+            Command::SRem(key, members) => match store.srem(key, members.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
 
             Command::SMembers(key) => match store.smembers(key).await {
                 Ok(members) => {
@@ -270,12 +264,10 @@ impl Command {
             },
 
             // Hash commands
-            Command::HSet(key, pairs) => {
-                match store.hset(key.clone(), pairs.clone()).await {
-                    Ok(count) => RespValue::Integer(count),
-                    Err(e) => RespValue::Error(e),
-                }
-            }
+            Command::HSet(key, pairs) => match store.hset(key.clone(), pairs.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
 
             Command::HGet(key, field) => match store.hget(key, field).await {
                 Ok(Some(value)) => RespValue::BulkString(Some(value)),
@@ -283,12 +275,10 @@ impl Command {
                 Err(e) => RespValue::Error(e),
             },
 
-            Command::HDel(key, fields) => {
-                match store.hdel(key, fields.clone()).await {
-                    Ok(count) => RespValue::Integer(count),
-                    Err(e) => RespValue::Error(e),
-                }
-            }
+            Command::HDel(key, fields) => match store.hdel(key, fields.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
 
             Command::HGetAll(key) => match store.hgetall(key).await {
                 Ok(pairs) => {
@@ -350,10 +340,12 @@ mod tests {
         let resp = make_cmd(&[b"PING", b"arg1", b"arg2"]);
         let result = Command::from_resp(resp);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("wrong number of arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("wrong number of arguments")
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use super::value::{DataType, StoredValue};
 use super::Store;
+use super::value::{DataType, StoredValue};
 
 impl Store {
     /// Get a value by key, returns None if key doesn't exist or is expired.

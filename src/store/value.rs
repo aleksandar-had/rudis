@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-pub const WRONGTYPE_ERR: &str =
-    "WRONGTYPE Operation against a key holding the wrong kind of value";
+pub const WRONGTYPE_ERR: &str = "WRONGTYPE Operation against a key holding the wrong kind of value";
 
 /// Represents the different data types a Redis key can hold
 #[derive(Debug, Clone)]

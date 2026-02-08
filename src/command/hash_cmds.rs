@@ -1,11 +1,12 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use super::parse::{extract_bulk_bytes, extract_bulk_string};
 use super::Command;
+use super::parse::{extract_bulk_bytes, extract_bulk_string};
 use crate::resp::RespValue;
 
 pub fn parse_hset(args: &[RespValue]) -> Result<Command> {
-    if args.len() < 3 || args.len() % 2 == 0 {
+    // args = [key, field1, value1, ...] — total must be odd (key + even field-value pairs)
+    if args.len() < 3 || args.len().is_multiple_of(2) {
         return Err(anyhow!("ERR wrong number of arguments for 'hset' command"));
     }
     let key = extract_bulk_string(&args[0])?;
