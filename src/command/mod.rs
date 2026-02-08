@@ -1,6 +1,14 @@
+mod hash_cmds;
+mod list_cmds;
+mod parse;
+mod set_cmds;
+mod string_cmds;
+mod ttl_cmds;
+
 use crate::resp::RespValue;
 use crate::store::Store;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use parse::extract_bulk_string;
 
 /// Represents a Redis command
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +29,25 @@ pub enum Command {
     Ttl(String),
     Persist(String),
     Keys(String),
+    // List commands
+    LPush(String, Vec<Vec<u8>>),
+    RPush(String, Vec<Vec<u8>>),
+    LPop(String),
+    RPop(String),
+    LRange(String, i64, i64),
+    LLen(String),
+    // Set commands
+    SAdd(String, Vec<Vec<u8>>),
+    SRem(String, Vec<Vec<u8>>),
+    SMembers(String),
+    SIsMember(String, Vec<u8>),
+    SCard(String),
+    // Hash commands
+    HSet(String, Vec<(Vec<u8>, Vec<u8>)>),
+    HGet(String, Vec<u8>),
+    HDel(String, Vec<Vec<u8>>),
+    HGetAll(String),
+    HLen(String),
 }
 
 impl Command {
@@ -32,22 +59,38 @@ impl Command {
                 let args = &elements[1..];
 
                 match cmd_name.to_uppercase().as_str() {
-                    "PING" => parse_ping(args),
-                    "GET" => parse_get(args),
-                    "SET" => parse_set(args),
-                    "DEL" => parse_del(args),
-                    "SETNX" => parse_setnx(args),
-                    "SETEX" => parse_setex(args),
-                    "INCR" => parse_incr(args),
-                    "DECR" => parse_decr(args),
-                    "INCRBY" => parse_incrby(args),
-                    "DECRBY" => parse_decrby(args),
-                    "MGET" => parse_mget(args),
-                    "MSET" => parse_mset(args),
-                    "EXPIRE" => parse_expire(args),
-                    "TTL" => parse_ttl(args),
-                    "PERSIST" => parse_persist(args),
-                    "KEYS" => parse_keys(args),
+                    "PING" => string_cmds::parse_ping(args),
+                    "GET" => string_cmds::parse_get(args),
+                    "SET" => string_cmds::parse_set(args),
+                    "DEL" => string_cmds::parse_del(args),
+                    "SETNX" => string_cmds::parse_setnx(args),
+                    "SETEX" => string_cmds::parse_setex(args),
+                    "INCR" => string_cmds::parse_incr(args),
+                    "DECR" => string_cmds::parse_decr(args),
+                    "INCRBY" => string_cmds::parse_incrby(args),
+                    "DECRBY" => string_cmds::parse_decrby(args),
+                    "MGET" => string_cmds::parse_mget(args),
+                    "MSET" => string_cmds::parse_mset(args),
+                    "EXPIRE" => ttl_cmds::parse_expire(args),
+                    "TTL" => ttl_cmds::parse_ttl(args),
+                    "PERSIST" => ttl_cmds::parse_persist(args),
+                    "KEYS" => ttl_cmds::parse_keys(args),
+                    "LPUSH" => list_cmds::parse_lpush(args),
+                    "RPUSH" => list_cmds::parse_rpush(args),
+                    "LPOP" => list_cmds::parse_lpop(args),
+                    "RPOP" => list_cmds::parse_rpop(args),
+                    "LRANGE" => list_cmds::parse_lrange(args),
+                    "LLEN" => list_cmds::parse_llen(args),
+                    "SADD" => set_cmds::parse_sadd(args),
+                    "SREM" => set_cmds::parse_srem(args),
+                    "SMEMBERS" => set_cmds::parse_smembers(args),
+                    "SISMEMBER" => set_cmds::parse_sismember(args),
+                    "SCARD" => set_cmds::parse_scard(args),
+                    "HSET" => hash_cmds::parse_hset(args),
+                    "HGET" => hash_cmds::parse_hget(args),
+                    "HDEL" => hash_cmds::parse_hdel(args),
+                    "HGETALL" => hash_cmds::parse_hgetall(args),
+                    "HLEN" => hash_cmds::parse_hlen(args),
                     _ => Err(anyhow!("ERR unknown command '{}'", cmd_name)),
                 }
             }
@@ -62,8 +105,9 @@ impl Command {
             Command::Ping(Some(msg)) => RespValue::BulkString(Some(msg.as_bytes().to_vec())),
 
             Command::Get(key) => match store.get(key).await {
-                Some(value) => RespValue::BulkString(Some(value)),
-                None => RespValue::BulkString(None),
+                Ok(Some(value)) => RespValue::BulkString(Some(value)),
+                Ok(None) => RespValue::BulkString(None),
+                Err(e) => RespValue::Error(e),
             },
 
             Command::Set(key, value) => {
@@ -106,12 +150,14 @@ impl Command {
                 Err(e) => RespValue::Error(e),
             },
 
-            Command::MGet(keys) => {
-                let values = store.mget(keys).await;
-                let resp_values: Vec<RespValue> =
-                    values.into_iter().map(RespValue::BulkString).collect();
-                RespValue::Array(Some(resp_values))
-            }
+            Command::MGet(keys) => match store.mget(keys).await {
+                Ok(values) => {
+                    let resp_values: Vec<RespValue> =
+                        values.into_iter().map(RespValue::BulkString).collect();
+                    RespValue::Array(Some(resp_values))
+                }
+                Err(e) => RespValue::Error(e),
+            },
 
             Command::MSet(pairs) => {
                 store.mset(pairs.clone()).await;
@@ -141,196 +187,117 @@ impl Command {
                     .collect();
                 RespValue::Array(Some(resp_values))
             }
+
+            // List commands
+            Command::LPush(key, elements) => {
+                match store.lpush(key.clone(), elements.clone()).await {
+                    Ok(len) => RespValue::Integer(len),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::RPush(key, elements) => {
+                match store.rpush(key.clone(), elements.clone()).await {
+                    Ok(len) => RespValue::Integer(len),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::LPop(key) => match store.lpop(key).await {
+                Ok(Some(value)) => RespValue::BulkString(Some(value)),
+                Ok(None) => RespValue::BulkString(None),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::RPop(key) => match store.rpop(key).await {
+                Ok(Some(value)) => RespValue::BulkString(Some(value)),
+                Ok(None) => RespValue::BulkString(None),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::LRange(key, start, stop) => match store.lrange(key, *start, *stop).await {
+                Ok(elements) => {
+                    let resp_values: Vec<RespValue> = elements
+                        .into_iter()
+                        .map(|e| RespValue::BulkString(Some(e)))
+                        .collect();
+                    RespValue::Array(Some(resp_values))
+                }
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::LLen(key) => match store.llen(key).await {
+                Ok(len) => RespValue::Integer(len),
+                Err(e) => RespValue::Error(e),
+            },
+
+            // Set commands
+            Command::SAdd(key, members) => match store.sadd(key.clone(), members.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::SRem(key, members) => match store.srem(key, members.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::SMembers(key) => match store.smembers(key).await {
+                Ok(members) => {
+                    let resp_values: Vec<RespValue> = members
+                        .into_iter()
+                        .map(|m| RespValue::BulkString(Some(m)))
+                        .collect();
+                    RespValue::Array(Some(resp_values))
+                }
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::SIsMember(key, member) => match store.sismember(key, member).await {
+                Ok(result) => RespValue::Integer(result),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::SCard(key) => match store.scard(key).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
+
+            // Hash commands
+            Command::HSet(key, pairs) => match store.hset(key.clone(), pairs.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::HGet(key, field) => match store.hget(key, field).await {
+                Ok(Some(value)) => RespValue::BulkString(Some(value)),
+                Ok(None) => RespValue::BulkString(None),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::HDel(key, fields) => match store.hdel(key, fields.clone()).await {
+                Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::HGetAll(key) => match store.hgetall(key).await {
+                Ok(pairs) => {
+                    let mut resp_values = Vec::with_capacity(pairs.len() * 2);
+                    for (field, value) in pairs {
+                        resp_values.push(RespValue::BulkString(Some(field)));
+                        resp_values.push(RespValue::BulkString(Some(value)));
+                    }
+                    RespValue::Array(Some(resp_values))
+                }
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::HLen(key) => match store.hlen(key).await {
+                Ok(len) => RespValue::Integer(len),
+                Err(e) => RespValue::Error(e),
+            },
         }
     }
-}
-
-// Helper function to extract a string from a bulk string RESP value
-fn extract_bulk_string(value: &RespValue) -> Result<String> {
-    match value {
-        RespValue::BulkString(Some(bytes)) => {
-            String::from_utf8(bytes.clone()).map_err(|e| anyhow!("Invalid UTF-8: {}", e))
-        }
-        RespValue::SimpleString(s) => Ok(s.clone()),
-        _ => Err(anyhow!("Expected bulk string or simple string")),
-    }
-}
-
-fn extract_bulk_bytes(value: &RespValue) -> Result<Vec<u8>> {
-    match value {
-        RespValue::BulkString(Some(bytes)) => Ok(bytes.clone()),
-        RespValue::SimpleString(s) => Ok(s.as_bytes().to_vec()),
-        _ => Err(anyhow!("Expected bulk string or simple string")),
-    }
-}
-
-fn extract_integer(value: &RespValue) -> Result<i64> {
-    match value {
-        RespValue::Integer(i) => Ok(*i),
-        RespValue::BulkString(Some(bytes)) => {
-            let s = String::from_utf8(bytes.clone())?;
-            s.parse::<i64>()
-                .map_err(|_| anyhow!("ERR value is not an integer or out of range"))
-        }
-        RespValue::SimpleString(s) => s
-            .parse::<i64>()
-            .map_err(|_| anyhow!("ERR value is not an integer or out of range")),
-        _ => Err(anyhow!("ERR value is not an integer or out of range")),
-    }
-}
-
-fn parse_ping(args: &[RespValue]) -> Result<Command> {
-    match args.len() {
-        0 => Ok(Command::Ping(None)),
-        1 => {
-            let message = extract_bulk_string(&args[0])?;
-            Ok(Command::Ping(Some(message)))
-        }
-        _ => Err(anyhow!("ERR wrong number of arguments for 'ping' command")),
-    }
-}
-
-fn parse_get(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 1 {
-        return Err(anyhow!("ERR wrong number of arguments for 'get' command"));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    Ok(Command::Get(key))
-}
-
-fn parse_set(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 2 {
-        return Err(anyhow!("ERR wrong number of arguments for 'set' command"));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    let value = extract_bulk_bytes(&args[1])?;
-    Ok(Command::Set(key, value))
-}
-
-fn parse_del(args: &[RespValue]) -> Result<Command> {
-    if args.is_empty() {
-        return Err(anyhow!("ERR wrong number of arguments for 'del' command"));
-    }
-    let keys: Result<Vec<String>> = args.iter().map(extract_bulk_string).collect();
-    Ok(Command::Del(keys?))
-}
-
-fn parse_setnx(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 2 {
-        return Err(anyhow!("ERR wrong number of arguments for 'setnx' command"));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    let value = extract_bulk_bytes(&args[1])?;
-    Ok(Command::SetNx(key, value))
-}
-
-fn parse_setex(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 3 {
-        return Err(anyhow!("ERR wrong number of arguments for 'setex' command"));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    let seconds = extract_integer(&args[1])?;
-    if seconds <= 0 {
-        return Err(anyhow!("ERR invalid expire time in 'setex' command"));
-    }
-    let value = extract_bulk_bytes(&args[2])?;
-    Ok(Command::SetEx(key, seconds as u64, value))
-}
-
-fn parse_incr(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 1 {
-        return Err(anyhow!("ERR wrong number of arguments for 'incr' command"));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    Ok(Command::Incr(key))
-}
-
-fn parse_decr(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 1 {
-        return Err(anyhow!("ERR wrong number of arguments for 'decr' command"));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    Ok(Command::Decr(key))
-}
-
-fn parse_incrby(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 2 {
-        return Err(anyhow!(
-            "ERR wrong number of arguments for 'incrby' command"
-        ));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    let delta = extract_integer(&args[1])?;
-    Ok(Command::IncrBy(key, delta))
-}
-
-fn parse_decrby(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 2 {
-        return Err(anyhow!(
-            "ERR wrong number of arguments for 'decrby' command"
-        ));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    let delta = extract_integer(&args[1])?;
-    Ok(Command::DecrBy(key, delta))
-}
-
-fn parse_mget(args: &[RespValue]) -> Result<Command> {
-    if args.is_empty() {
-        return Err(anyhow!("ERR wrong number of arguments for 'mget' command"));
-    }
-    let keys: Result<Vec<String>> = args.iter().map(extract_bulk_string).collect();
-    Ok(Command::MGet(keys?))
-}
-
-fn parse_mset(args: &[RespValue]) -> Result<Command> {
-    if args.is_empty() || !args.len().is_multiple_of(2) {
-        return Err(anyhow!("ERR wrong number of arguments for 'mset' command"));
-    }
-    let mut pairs = Vec::new();
-    for chunk in args.chunks(2) {
-        let key = extract_bulk_string(&chunk[0])?;
-        let value = extract_bulk_bytes(&chunk[1])?;
-        pairs.push((key, value));
-    }
-    Ok(Command::MSet(pairs))
-}
-
-fn parse_expire(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 2 {
-        return Err(anyhow!(
-            "ERR wrong number of arguments for 'expire' command"
-        ));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    let seconds = extract_integer(&args[1])?;
-    Ok(Command::Expire(key, seconds))
-}
-
-fn parse_ttl(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 1 {
-        return Err(anyhow!("ERR wrong number of arguments for 'ttl' command"));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    Ok(Command::Ttl(key))
-}
-
-fn parse_persist(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 1 {
-        return Err(anyhow!(
-            "ERR wrong number of arguments for 'persist' command"
-        ));
-    }
-    let key = extract_bulk_string(&args[0])?;
-    Ok(Command::Persist(key))
-}
-
-fn parse_keys(args: &[RespValue]) -> Result<Command> {
-    if args.len() != 1 {
-        return Err(anyhow!("ERR wrong number of arguments for 'keys' command"));
-    }
-    let pattern = extract_bulk_string(&args[0])?;
-    Ok(Command::Keys(pattern))
 }
 
 #[cfg(test)]
@@ -373,10 +340,12 @@ mod tests {
         let resp = make_cmd(&[b"PING", b"arg1", b"arg2"]);
         let result = Command::from_resp(resp);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("wrong number of arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("wrong number of arguments")
+        );
     }
 
     #[test]

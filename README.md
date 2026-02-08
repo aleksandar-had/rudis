@@ -2,12 +2,14 @@
 
 A from-scratch implementation of Redis in Rust, built for learning and tinkering.
 
-## Current Status: Phase 3 - TTL Commands & Active Expiration
+## Current Status: Phase 4 - Data Structures
 
 ### Implemented Features
 - TCP server listening on port 6379
 - RESP protocol parser (all 5 data types + inline commands)
 - Thread-safe data store with key expiration
+- Multi-type store: Strings, Lists, Sets, Hashes
+- WRONGTYPE errors for cross-type operations
 - Passive expiration (lazy deletion on access)
 - Active expiration (background task sampling expired keys)
 - Full redis-cli compatibility
@@ -32,6 +34,25 @@ A from-scratch implementation of Redis in Rust, built for learning and tinkering
 | `TTL key` | Get time-to-live (-2 no key, -1 no expiry) |
 | `PERSIST key` | Remove expiration from key |
 | `KEYS pattern` | Find keys matching glob pattern (* ?) |
+| **Lists** | |
+| `LPUSH key elem [elem ...]` | Push elements to list head |
+| `RPUSH key elem [elem ...]` | Push elements to list tail |
+| `LPOP key` | Remove and return head element |
+| `RPOP key` | Remove and return tail element |
+| `LRANGE key start stop` | Get range of elements (negative indices supported) |
+| `LLEN key` | Get list length |
+| **Sets** | |
+| `SADD key member [member ...]` | Add members to set |
+| `SREM key member [member ...]` | Remove members from set |
+| `SMEMBERS key` | Get all set members |
+| `SISMEMBER key member` | Check set membership (0 or 1) |
+| `SCARD key` | Get set cardinality |
+| **Hashes** | |
+| `HSET key field value [field value ...]` | Set hash fields |
+| `HGET key field` | Get hash field value |
+| `HDEL key field [field ...]` | Delete hash fields |
+| `HGETALL key` | Get all hash field-value pairs |
+| `HLEN key` | Get number of hash fields |
 
 ## Quick Start
 
@@ -85,6 +106,25 @@ redis-cli TTL mykey
 # Find keys by pattern
 redis-cli KEYS "user:*"
 redis-cli KEYS "key?"
+
+# Lists
+redis-cli LPUSH mylist "c" "b" "a"
+redis-cli LRANGE mylist 0 -1
+# 1) "a"  2) "b"  3) "c"
+redis-cli LPOP mylist
+# "a"
+
+# Sets
+redis-cli SADD myset "x" "y" "z"
+redis-cli SISMEMBER myset "x"
+# 1
+redis-cli SMEMBERS myset
+
+# Hashes
+redis-cli HSET user:1 name "alice" age "30"
+redis-cli HGET user:1 name
+# "alice"
+redis-cli HGETALL user:1
 ```
 
 ### Run Tests
@@ -121,11 +161,17 @@ Results are appended to `benchmark_results.md`.
 ### Project Structure
 ```
 src/
-├── main.rs      # Entry point
-├── server.rs    # TCP server and connection handling
-├── resp.rs      # RESP protocol parser/serializer
-├── command.rs   # Command parsing and execution
-└── store.rs     # Thread-safe key-value store with expiration
+├── main.rs          # Entry point
+├── server.rs        # TCP server and connection handling
+├── resp.rs          # RESP protocol parser/serializer
+├── command/         # Command parsing and execution
+│   ├── mod.rs       # Command enum, dispatch
+│   ├── parse.rs     # Shared parsing helpers
+│   ├── string_cmds.rs, ttl_cmds.rs, list_cmds.rs, set_cmds.rs, hash_cmds.rs
+└── store/           # Thread-safe data store
+    ├── mod.rs       # Store struct, active expiration
+    ├── value.rs     # DataType enum, StoredValue
+    ├── string_ops.rs, ttl_ops.rs, list_ops.rs, set_ops.rs, hash_ops.rs
 ```
 
 ### RESP Protocol Support
@@ -137,8 +183,11 @@ src/
 
 ### Data Store
 - Thread-safe using `Arc<RwLock<HashMap>>`
+- Multi-type: `DataType` enum supports String, List (VecDeque), Set (HashSet), Hash (HashMap)
+- WRONGTYPE errors when commands target the wrong data type
 - Passive expiration (lazy deletion on key access)
 - Active expiration (background task samples 20 keys every 100ms)
+- Auto-deletion of empty collections (lists, sets, hashes)
 - Supports binary data as values
 
 ## Roadmap
@@ -147,5 +196,7 @@ src/
 - [x] Phase 2: Core Commands (GET, SET, DEL, INCR, etc.)
 - [x] Phase 3: TTL Commands (EXPIRE, TTL, PERSIST, KEYS) & Active Expiration
   - KEYS supports basic glob (* and ?) - full glob ([abc], [^abc], [a-z]) planned for later
-- [ ] Phase 4: Persistence (RDB, AOF)
-- [ ] Phase 5: Replication & Clustering
+- [x] Phase 4: Data Structures (Lists, Sets, Hashes)
+- [ ] Phase 4.5: Sorted Sets (ZADD, ZRANGE, ZRANK, ZSCORE, ZCARD)
+- [ ] Phase 5: Persistence (RDB, AOF)
+- [ ] Phase 6: Replication & Clustering
