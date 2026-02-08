@@ -1,4 +1,5 @@
 mod glob;
+mod list_ops;
 mod string_ops;
 mod ttl_ops;
 pub mod value;

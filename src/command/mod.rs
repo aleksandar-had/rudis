@@ -1,3 +1,4 @@
+mod list_cmds;
 mod parse;
 mod string_cmds;
 mod ttl_cmds;
@@ -26,6 +27,13 @@ pub enum Command {
     Ttl(String),
     Persist(String),
     Keys(String),
+    // List commands
+    LPush(String, Vec<Vec<u8>>),
+    RPush(String, Vec<Vec<u8>>),
+    LPop(String),
+    RPop(String),
+    LRange(String, i64, i64),
+    LLen(String),
 }
 
 impl Command {
@@ -53,6 +61,12 @@ impl Command {
                     "TTL" => ttl_cmds::parse_ttl(args),
                     "PERSIST" => ttl_cmds::parse_persist(args),
                     "KEYS" => ttl_cmds::parse_keys(args),
+                    "LPUSH" => list_cmds::parse_lpush(args),
+                    "RPUSH" => list_cmds::parse_rpush(args),
+                    "LPOP" => list_cmds::parse_lpop(args),
+                    "RPOP" => list_cmds::parse_rpop(args),
+                    "LRANGE" => list_cmds::parse_lrange(args),
+                    "LLEN" => list_cmds::parse_llen(args),
                     _ => Err(anyhow!("ERR unknown command '{}'", cmd_name)),
                 }
             }
@@ -149,6 +163,51 @@ impl Command {
                     .collect();
                 RespValue::Array(Some(resp_values))
             }
+
+            // List commands
+            Command::LPush(key, elements) => {
+                match store.lpush(key.clone(), elements.clone()).await {
+                    Ok(len) => RespValue::Integer(len),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::RPush(key, elements) => {
+                match store.rpush(key.clone(), elements.clone()).await {
+                    Ok(len) => RespValue::Integer(len),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::LPop(key) => match store.lpop(key).await {
+                Ok(Some(value)) => RespValue::BulkString(Some(value)),
+                Ok(None) => RespValue::BulkString(None),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::RPop(key) => match store.rpop(key).await {
+                Ok(Some(value)) => RespValue::BulkString(Some(value)),
+                Ok(None) => RespValue::BulkString(None),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::LRange(key, start, stop) => {
+                match store.lrange(key, *start, *stop).await {
+                    Ok(elements) => {
+                        let resp_values: Vec<RespValue> = elements
+                            .into_iter()
+                            .map(|e| RespValue::BulkString(Some(e)))
+                            .collect();
+                        RespValue::Array(Some(resp_values))
+                    }
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::LLen(key) => match store.llen(key).await {
+                Ok(len) => RespValue::Integer(len),
+                Err(e) => RespValue::Error(e),
+            },
         }
     }
 }
