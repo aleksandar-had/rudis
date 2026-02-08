@@ -1,5 +1,6 @@
 mod list_cmds;
 mod parse;
+mod set_cmds;
 mod string_cmds;
 mod ttl_cmds;
 
@@ -34,6 +35,12 @@ pub enum Command {
     RPop(String),
     LRange(String, i64, i64),
     LLen(String),
+    // Set commands
+    SAdd(String, Vec<Vec<u8>>),
+    SRem(String, Vec<Vec<u8>>),
+    SMembers(String),
+    SIsMember(String, Vec<u8>),
+    SCard(String),
 }
 
 impl Command {
@@ -67,6 +74,11 @@ impl Command {
                     "RPOP" => list_cmds::parse_rpop(args),
                     "LRANGE" => list_cmds::parse_lrange(args),
                     "LLEN" => list_cmds::parse_llen(args),
+                    "SADD" => set_cmds::parse_sadd(args),
+                    "SREM" => set_cmds::parse_srem(args),
+                    "SMEMBERS" => set_cmds::parse_smembers(args),
+                    "SISMEMBER" => set_cmds::parse_sismember(args),
+                    "SCARD" => set_cmds::parse_scard(args),
                     _ => Err(anyhow!("ERR unknown command '{}'", cmd_name)),
                 }
             }
@@ -206,6 +218,42 @@ impl Command {
 
             Command::LLen(key) => match store.llen(key).await {
                 Ok(len) => RespValue::Integer(len),
+                Err(e) => RespValue::Error(e),
+            },
+
+            // Set commands
+            Command::SAdd(key, members) => {
+                match store.sadd(key.clone(), members.clone()).await {
+                    Ok(count) => RespValue::Integer(count),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::SRem(key, members) => {
+                match store.srem(key, members.clone()).await {
+                    Ok(count) => RespValue::Integer(count),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::SMembers(key) => match store.smembers(key).await {
+                Ok(members) => {
+                    let resp_values: Vec<RespValue> = members
+                        .into_iter()
+                        .map(|m| RespValue::BulkString(Some(m)))
+                        .collect();
+                    RespValue::Array(Some(resp_values))
+                }
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::SIsMember(key, member) => match store.sismember(key, member).await {
+                Ok(result) => RespValue::Integer(result),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::SCard(key) => match store.scard(key).await {
+                Ok(count) => RespValue::Integer(count),
                 Err(e) => RespValue::Error(e),
             },
         }
