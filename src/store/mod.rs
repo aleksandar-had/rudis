@@ -1,11 +1,12 @@
 mod glob;
+mod hash_ops;
 mod list_ops;
 mod set_ops;
 mod string_ops;
 mod ttl_ops;
 pub mod value;
 
-pub use value::{DataType, StoredValue};
+pub use value::StoredValue;
 
 use std::collections::HashMap;
 use std::sync::Arc;

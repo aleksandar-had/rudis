@@ -1,3 +1,4 @@
+mod hash_cmds;
 mod list_cmds;
 mod parse;
 mod set_cmds;
@@ -41,6 +42,12 @@ pub enum Command {
     SMembers(String),
     SIsMember(String, Vec<u8>),
     SCard(String),
+    // Hash commands
+    HSet(String, Vec<(Vec<u8>, Vec<u8>)>),
+    HGet(String, Vec<u8>),
+    HDel(String, Vec<Vec<u8>>),
+    HGetAll(String),
+    HLen(String),
 }
 
 impl Command {
@@ -79,6 +86,11 @@ impl Command {
                     "SMEMBERS" => set_cmds::parse_smembers(args),
                     "SISMEMBER" => set_cmds::parse_sismember(args),
                     "SCARD" => set_cmds::parse_scard(args),
+                    "HSET" => hash_cmds::parse_hset(args),
+                    "HGET" => hash_cmds::parse_hget(args),
+                    "HDEL" => hash_cmds::parse_hdel(args),
+                    "HGETALL" => hash_cmds::parse_hgetall(args),
+                    "HLEN" => hash_cmds::parse_hlen(args),
                     _ => Err(anyhow!("ERR unknown command '{}'", cmd_name)),
                 }
             }
@@ -254,6 +266,44 @@ impl Command {
 
             Command::SCard(key) => match store.scard(key).await {
                 Ok(count) => RespValue::Integer(count),
+                Err(e) => RespValue::Error(e),
+            },
+
+            // Hash commands
+            Command::HSet(key, pairs) => {
+                match store.hset(key.clone(), pairs.clone()).await {
+                    Ok(count) => RespValue::Integer(count),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::HGet(key, field) => match store.hget(key, field).await {
+                Ok(Some(value)) => RespValue::BulkString(Some(value)),
+                Ok(None) => RespValue::BulkString(None),
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::HDel(key, fields) => {
+                match store.hdel(key, fields.clone()).await {
+                    Ok(count) => RespValue::Integer(count),
+                    Err(e) => RespValue::Error(e),
+                }
+            }
+
+            Command::HGetAll(key) => match store.hgetall(key).await {
+                Ok(pairs) => {
+                    let mut resp_values = Vec::with_capacity(pairs.len() * 2);
+                    for (field, value) in pairs {
+                        resp_values.push(RespValue::BulkString(Some(field)));
+                        resp_values.push(RespValue::BulkString(Some(value)));
+                    }
+                    RespValue::Array(Some(resp_values))
+                }
+                Err(e) => RespValue::Error(e),
+            },
+
+            Command::HLen(key) => match store.hlen(key).await {
+                Ok(len) => RespValue::Integer(len),
                 Err(e) => RespValue::Error(e),
             },
         }
